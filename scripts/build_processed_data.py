@@ -14,7 +14,12 @@ from src.data_loader import load_outlet_data  # noqa: E402
 
 
 def main() -> None:
-    source_path = ROOT / "data" / "raw" / "franchiseops_filtered_outlet_data.csv"
+    source_path = (
+        ROOT
+        / "data"
+        / "raw"
+        / "FranchiseOps_AI_Milestone1_Member1_Large_Raw_Dataset.xlsx"
+    )
     output_path = ROOT / "data" / "processed" / "outlet_performance_intelligence.csv"
     source, report = load_outlet_data(source_path)
     processed = calculate_performance_metrics(source)

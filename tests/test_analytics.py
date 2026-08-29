@@ -7,7 +7,7 @@ from src.data_loader import load_outlet_data
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_PATH = ROOT / "data" / "raw" / "franchiseops_filtered_outlet_data.csv"
+DATA_PATH = ROOT / "data" / "raw" / "FranchiseOps_AI_Milestone1_Member1_Large_Raw_Dataset.xlsx"
 
 
 def _processed():
@@ -15,20 +15,22 @@ def _processed():
     return calculate_performance_metrics(source)
 
 
-def test_score_weights_sum_to_one():
+def test_grouped_score_weights_sum_to_one():
     assert np.isclose(sum(SCORE_WEIGHTS.values()), 1.0)
 
 
-def test_calculated_scores_are_bounded_and_complete():
+def test_supplied_scores_and_agent_outputs_are_complete():
     data = _processed()
     assert data["performance_score"].between(0, 100).all()
     assert data[["health_category", "alert_level", "insight", "recommendation"]].notna().all().all()
 
 
-def test_every_month_has_unique_complete_ranks():
-    data = _processed()
-    for _, group in data.groupby("date"):
-        assert sorted(group["rank"].tolist()) == list(range(1, len(group) + 1))
+def test_global_performance_ranks_cover_every_outlet():
+    data = _processed().drop_duplicates("outlet_id")
+    assert len(data) == 750
+    assert data["performance_rank"].between(1, 750).all()
+    ordered = data.sort_values(["performance_score", "performance_rank"], ascending=[False, True])
+    assert ordered["performance_rank"].is_monotonic_increasing
 
 
 def test_monthly_benchmark_equals_peer_mean():
@@ -37,15 +39,16 @@ def test_monthly_benchmark_equals_peer_mean():
         assert np.allclose(group["benchmark_revenue"], group["revenue"].mean())
 
 
-def test_health_thresholds_and_alerts_are_consistent():
-    data = _processed()
-    assert (data.loc[data["performance_score"] >= 85, "health_category"] == "Excellent").all()
-    assert (data.loc[data["performance_score"] < 55, "health_category"] == "Critical").all()
+def test_health_thresholds_match_performance_score_module():
+    data = _processed().drop_duplicates("outlet_id")
+    assert (data.loc[data["performance_score"] >= 80, "health_category"] == "Excellent").all()
+    assert (data.loc[data["performance_score"] < 50, "health_category"] == "Critical").all()
     assert (data.loc[data["health_category"] == "Critical", "alert_level"] == "High").all()
 
 
 def test_filtered_peer_ranking_is_contiguous():
     data = _processed()
-    snapshot = data[data["date"] == data["date"].max()].query("region == 'West'")
+    snapshot = data[(data["date"] == data["date"].max()) & (data["region"] == "West")]
     ranked = rerank_snapshot(snapshot)
-    assert ranked["peer_rank"].tolist() == list(range(1, len(ranked) + 1))
+    assert len(ranked) == 200
+    assert ranked["peer_rank"].tolist() == list(range(1, 201))

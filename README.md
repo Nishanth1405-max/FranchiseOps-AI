@@ -1,29 +1,40 @@
-# FranchiseOps AI - Milestone 1
+# FranchiseOps AI — Integrated Milestone 1 Dashboard
 
-An interactive Outlet Performance Intelligence dashboard for multi-location franchise operations. It implements the first milestone from the supplied project reference: data integration, outlet benchmarking, performance scoring, agent-style insights, and dashboard reporting.
+This Streamlit dashboard integrates the four supplied team feature branches while preserving the existing dashboard theme, navigation, five-tab layout, charts, KPI cards, filters, and downloads.
 
-## What is included
+## Integrated team modules
 
-- Validated sales and outlet data for 12 outlets across 8 months
-- Transparent five-component performance score
-- Deterministic monthly outlet rankings with tie-break rules
-- Health categories and severity-based alerts
-- Executive overview, benchmarking, outlet drill-down, and action centre
-- Rule-based Outlet Performance Agent recommendations
-- Downloadable benchmark and agent-insight reports
-- Automated analytics, data-quality, and application smoke tests
+| Team module | Integrated source | Dashboard use |
+| --- | --- | --- |
+| Sales & Outlet Data | Raw Excel workbook and cleaning notebook | 30,000 validated outlet-month records, trends, filters, and operating KPIs |
+| Outlet Benchmarking | `benchmarking/benchmark_output.csv` and reusable Python module | KPI benchmark score, category, rank, and peer comparisons |
+| Performance Score | `performance_score/performance_score_output.csv` and reusable Python module | Seven-driver score, health category, global rank, and score-driver chart |
+| Outlet Performance Agent | `src/outlet_performance_agent/outlet_agent.py` | Explainable findings, issue tags, severity, and recommendations |
+| Performance Dashboard | `app.py` | Overview, Benchmarking, Outlet Analysis, Agent Insights, and Methodology & Quality |
+
+The integration validates that the supplied score output can be reproduced from the supplied benchmarking output before displaying it.
+
+## Data quality result
+
+- 30,120 raw rows loaded from the `Raw_Outlet_Data` worksheet
+- 120 duplicated operating rows removed
+- 2,288 missing numeric values median-imputed according to the sales-data notebook
+- 30,000 clean rows covering 750 outlets and 40 months
+- No remaining required-field gaps, duplicate outlet-month rows, or identity conflicts
 
 ## Performance score
 
-| Component | Weight | Calculation |
-| --- | ---: | --- |
-| Revenue target achievement | 35% | `revenue / target_revenue`, capped at 100 |
-| Month-over-month growth | 15% | -20% maps to 0, 0% maps to 50, +20% maps to 100 |
-| Customer rating | 20% | Rating converted from a 5-point scale to 100 |
-| Complaint control | 15% | `100 - complaint_rate * 10`, bounded to 0-100 |
-| On-time service | 15% | Existing percentage, bounded to 0-100 |
+| Driver | Weight |
+| --- | ---: |
+| Sales rank | 20% |
+| Profit rank | 20% |
+| Profit-margin rank | 15% |
+| Conversion-rate rank | 15% |
+| Average-order-value rank | 10% |
+| Customer-satisfaction rank | 10% |
+| Complaint-control rank | 10% |
 
-Health categories: Excellent (85-100), Good (70-84.9), Needs Improvement (55-69.9), and Critical (below 55).
+Health categories are Excellent (80–100), Good (65–79.99), Needs Improvement (50–64.99), and Critical (below 50).
 
 ## Run locally
 
@@ -36,13 +47,13 @@ streamlit run app.py
 
 The application opens at `http://localhost:8501`.
 
-## Build the processed dataset
+## Regenerate team outputs
 
 ```bash
+python -m benchmarking.benchmarking
+python -m performance_score.performance_score
 python scripts/build_processed_data.py
 ```
-
-This writes the recalculated scores, rankings, alerts, insights, and recommendations to `data/processed/outlet_performance_intelligence.csv`.
 
 ## Run tests
 
@@ -53,23 +64,24 @@ pytest -q
 ## Project structure
 
 ```text
-FranchiseOps-AI-main/
+FranchiseOps-AI-performance-dashboard/
 ├── app.py
+├── benchmarking/
+│   ├── benchmarking.py
+│   ├── benchmark_output.csv
+│   └── outlet_kpis.csv
+├── performance_score/
+│   ├── performance_score.py
+│   └── performance_score_output.csv
 ├── data/
-│   ├── raw/franchiseops_filtered_outlet_data.csv
+│   ├── raw/FranchiseOps_AI_Milestone1_Member1_Large_Raw_Dataset.xlsx
 │   └── processed/outlet_performance_intelligence.csv
-├── docs/MILESTONE1_HANDOFF.md
-├── scripts/build_processed_data.py
 ├── src/
 │   ├── analytics.py
-│   └── data_loader.py
+│   ├── data_loader.py
+│   ├── outlet_performance_agent/outlet_agent.py
+│   └── sales_outlet_data/franchiseOpsAi.ipynb
+├── scripts/build_processed_data.py
 ├── tests/
-│   ├── test_analytics.py
-│   ├── test_app.py
-│   └── test_data_loader.py
 └── requirements.txt
 ```
-
-## Data notes
-
-The dashboard treats the uploaded revenue, target, orders, customer rating, complaint rate, and service values as source measures. Precomputed benchmark, score, rank, alert, insight, and recommendation columns in the uploaded CSV are recalculated so the displayed methodology stays internally consistent and auditable.

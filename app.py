@@ -22,7 +22,7 @@ from src.data_loader import DataValidationError, load_outlet_data
 
 
 ROOT = Path(__file__).resolve().parent
-DATA_PATH = ROOT / "data" / "raw" / "franchiseops_filtered_outlet_data.csv"
+DATA_PATH = ROOT / "data" / "raw" / "FranchiseOps_AI_Milestone1_Member1_Large_Raw_Dataset.xlsx"
 
 st.set_page_config(
     page_title="FranchiseOps AI | Outlet Intelligence",
@@ -200,7 +200,7 @@ month_label = pd.Timestamp(snapshot_month).strftime("%B %Y")
 st.title("Outlet Performance Intelligence")
 st.markdown(
     f"""<div class="hero"><div class="hero-kicker">FranchiseOps AI · Milestone 1</div>
-    <p class="hero-copy">Monitor revenue, compare franchise locations, measure outlet health, and convert operating signals into prioritized actions. Current peer snapshot: <b>{month_label}</b>.</p></div>""",
+    <p class="hero-copy">Monitor sales and profit, compare franchise locations, measure outlet health, and convert operating signals into prioritized actions. Current operating snapshot: <b>{month_label}</b>.</p></div>""",
     unsafe_allow_html=True,
 )
 
@@ -226,9 +226,9 @@ with overview_tab:
     with k1:
         kpi_card("Monthly revenue", money(total_revenue), f"{revenue_delta:+.1f}% vs prior month", "good" if revenue_delta >= 0 else "bad")
     with k2:
-        kpi_card("Target achievement", f"{attainment:.1f}%", f"Gap {money(total_revenue - total_target)}", "good" if attainment >= 100 else "warn")
+        kpi_card("Peer revenue index", f"{attainment:.1f}%", f"Gap {money(total_revenue - total_target)}", "good" if attainment >= 100 else "warn")
     with k3:
-        kpi_card("Average health score", f"{average_score:.1f}/100", "Weighted across 5 drivers", "good" if average_score >= 70 else "warn")
+        kpi_card("Average health score", f"{average_score:.1f}/100", "Weighted across 7 drivers", "good" if average_score >= 65 else "warn")
     with k4:
         kpi_card("Healthy outlets", f"{healthy_count}/{len(snapshot)}", "Excellent or Good", "good")
     with k5:
@@ -240,8 +240,8 @@ with overview_tab:
     monthly = filtered.groupby("date", as_index=False).agg(revenue=("revenue", "sum"), target=("target_revenue", "sum"))
     trend = go.Figure()
     trend.add_trace(go.Scatter(x=monthly["date"], y=monthly["revenue"], name="Revenue", mode="lines+markers", line=dict(color="#2DD4BF", width=3)))
-    trend.add_trace(go.Scatter(x=monthly["date"], y=monthly["target"], name="Target", mode="lines+markers", line=dict(color="#94A3B8", width=2, dash="dash")))
-    trend.update_layout(title="Revenue vs target", yaxis_title="Revenue (₹)", hovermode="x unified")
+    trend.add_trace(go.Scatter(x=monthly["date"], y=monthly["target"], name="Peer benchmark", mode="lines+markers", line=dict(color="#94A3B8", width=2, dash="dash")))
+    trend.update_layout(title="Revenue vs peer benchmark", yaxis_title="Revenue (₹)", hovermode="x unified")
     trend.update_yaxes(tickformat="~s")
     with left:
         st.plotly_chart(style_figure(trend), width="stretch", config={"displayModeBar": False, "responsive": True})
@@ -256,7 +256,7 @@ with overview_tab:
         snapshot, x="target_achievement_pct", y="performance_score", size="revenue", color="health_category",
         color_discrete_map=HEALTH_COLORS, hover_name="outlet_name",
         hover_data={"revenue": ":,.0f", "target_achievement_pct": ":.1f", "performance_score": ":.1f", "health_category": False},
-        labels={"target_achievement_pct": "Target achievement (%)", "performance_score": "Performance score", "health_category": "Health"},
+        labels={"target_achievement_pct": "Peer revenue index (%)", "performance_score": "Performance score", "health_category": "Health"},
         title="Performance matrix",
     )
     matrix.add_vline(x=100, line_dash="dash", line_color="#64748B")
@@ -266,27 +266,28 @@ with overview_tab:
 
 with benchmark_tab:
     st.markdown("### Outlet benchmarking")
-    st.markdown(f"<p class='section-note'>Unique peer ranking for {month_label}. Filters dynamically define the comparison group.</p>", unsafe_allow_html=True)
+    st.markdown(f"<p class='section-note'>Unique peer ranking for {month_label}. The chart shows the leading 20 selected outlets; the table and download contain all results.</p>", unsafe_allow_html=True)
+    chart_snapshot = snapshot.head(20)
     benchmark_chart = px.bar(
-        snapshot.sort_values("performance_score"), x="performance_score", y="outlet_name", orientation="h",
+        chart_snapshot.sort_values("performance_score"), x="performance_score", y="outlet_name", orientation="h",
         color="health_category", color_discrete_map=HEALTH_COLORS, text="performance_score",
-        hover_data={"target_achievement_pct": ":.1f", "benchmark_gap_pct": ":+.1f", "peer_rank": True},
+        hover_data={"benchmark_score": ":.1f", "target_achievement_pct": ":.1f", "benchmark_gap_pct": ":+.1f", "peer_rank": True},
         labels={"performance_score": "Performance score", "outlet_name": "Outlet", "health_category": "Health"},
         title="Peer performance ranking",
     )
     benchmark_chart.update_traces(texttemplate="%{text:.1f}", textposition="outside", cliponaxis=False)
     benchmark_chart.update_xaxes(range=[0, 105])
-    st.plotly_chart(style_figure(benchmark_chart, max(390, 38 * len(snapshot))), width="stretch", config={"displayModeBar": False, "responsive": True})
+    st.plotly_chart(style_figure(benchmark_chart, max(390, 38 * len(chart_snapshot))), width="stretch", config={"displayModeBar": False, "responsive": True})
 
-    display = snapshot[["peer_rank", "outlet_name", "city", "region", "revenue", "target_achievement_pct", "benchmark_gap_pct", "performance_score", "health_category", "alert_level"]].rename(
-        columns={"peer_rank": "Rank", "outlet_name": "Outlet", "city": "City", "region": "Region", "revenue": "Revenue", "target_achievement_pct": "Target %", "benchmark_gap_pct": "Peer gap %", "performance_score": "Score", "health_category": "Health", "alert_level": "Alert"}
+    display = snapshot[["peer_rank", "outlet_name", "city", "region", "revenue", "target_achievement_pct", "benchmark_score", "performance_score", "health_category", "alert_level"]].rename(
+        columns={"peer_rank": "Rank", "outlet_name": "Outlet", "city": "City", "region": "Region", "revenue": "Revenue", "target_achievement_pct": "Peer index %", "benchmark_score": "Benchmark", "performance_score": "Score", "health_category": "Health", "alert_level": "Alert"}
     )
     st.dataframe(
         display, hide_index=True, width="stretch",
         column_config={
             "Revenue": st.column_config.NumberColumn(format="₹ %.0f"),
-            "Target %": st.column_config.NumberColumn(format="%.1f%%"),
-            "Peer gap %": st.column_config.NumberColumn(format="%+.1f%%"),
+            "Peer index %": st.column_config.NumberColumn(format="%.1f%%"),
+            "Benchmark": st.column_config.NumberColumn(format="%.1f"),
             "Score": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f"),
         },
     )
@@ -308,18 +309,18 @@ with outlet_tab:
 
     d1, d2, d3, d4 = st.columns(4)
     with d1:
-        kpi_card("Performance score", f"{row['performance_score']:.1f}", str(row["health_category"]), "good" if row["performance_score"] >= 70 else "warn")
+        kpi_card("Performance score", f"{row['performance_score']:.1f}", str(row["health_category"]), "good" if row["performance_score"] >= 65 else "warn")
     with d2:
-        kpi_card("Monthly revenue", money(float(row["revenue"])), f"{row['target_achievement_pct']:.1f}% of target", "good" if row["target_achievement_pct"] >= 100 else "warn")
+        kpi_card("Monthly revenue", money(float(row["revenue"])), f"{row['target_achievement_pct']:.1f}% of peer benchmark", "good" if row["target_achievement_pct"] >= 100 else "warn")
     with d3:
         kpi_card("Customer rating", f"{row['customer_rating']:.2f}/5", f"Complaint rate {row['complaint_rate']:.2f}%")
     with d4:
-        kpi_card("Service reliability", f"{row['on_time_service_pct']:.1f}%", f"Alert: {row['alert_level']}", "bad" if row["alert_level"] == "High" else "")
+        kpi_card("Conversion rate", f"{row['conversion_rate']:.1f}%", f"Alert: {row['alert_level']}", "bad" if row["alert_level"] == "High" else "")
 
     c1, c2 = st.columns([1.55, 1])
     history_chart = go.Figure()
     history_chart.add_trace(go.Bar(x=selected_history["date"], y=selected_history["revenue"], name="Revenue", marker_color="#2DD4BF"))
-    history_chart.add_trace(go.Scatter(x=selected_history["date"], y=selected_history["target_revenue"], name="Target", mode="lines+markers", line=dict(color="#FBBF24", width=2)))
+    history_chart.add_trace(go.Scatter(x=selected_history["date"], y=selected_history["benchmark_revenue"], name="Peer benchmark", mode="lines+markers", line=dict(color="#FBBF24", width=2)))
     history_chart.update_layout(title="Revenue history", yaxis_title="Revenue (₹)", hovermode="x unified")
     history_chart.update_yaxes(tickformat="~s")
     with c1:
@@ -341,16 +342,16 @@ with outlet_tab:
     detail_for_card["peer_rank"] = int(snapshot.loc[snapshot["outlet_id"] == selected_detail_id, "peer_rank"].iloc[0])
     show_agent_card(detail_for_card)
 
-    score_history = px.line(selected_history, x="date", y="performance_score", markers=True, title="Performance score trend", labels={"date": "Month", "performance_score": "Score"})
+    score_history = px.line(selected_history, x="date", y="target_achievement_pct", markers=True, title="Peer revenue index trend", labels={"date": "Month", "target_achievement_pct": "Peer index (%)"})
     score_history.update_traces(line_color="#60A5FA", line_width=3)
-    score_history.add_hline(y=70, line_dash="dash", line_color="#64748B", annotation_text="Good threshold")
-    score_history.update_yaxes(range=[0, 100])
+    score_history.add_hline(y=100, line_dash="dash", line_color="#64748B", annotation_text="Peer benchmark")
+    score_history.update_yaxes(rangemode="tozero")
     st.plotly_chart(style_figure(score_history, 330), width="stretch", config={"displayModeBar": False, "responsive": True})
 
 
 with agent_tab:
     st.markdown("### Outlet Performance Agent")
-    st.markdown("<p class='section-note'>Deterministic, explainable findings ranked by alert severity and performance score. No external API key is required.</p>", unsafe_allow_html=True)
+    st.markdown("<p class='section-note'>Deterministic, explainable findings from the integrated performance agent, ranked by severity and score. No external API key is required.</p>", unsafe_allow_html=True)
     priority_order = pd.Categorical(snapshot["alert_level"], categories=["High", "Medium", "Low"], ordered=True)
     agent_rows = snapshot.assign(_priority=priority_order).sort_values(["_priority", "performance_score"])
     high_count = int((agent_rows["alert_level"] == "High").sum())
@@ -365,7 +366,7 @@ with agent_tab:
         kpi_card("Stable", str(low_count), "Low-severity outlets", "good")
 
     st.markdown("#### Prioritized action queue")
-    for _, agent_row in agent_rows.iterrows():
+    for _, agent_row in agent_rows.head(50).iterrows():
         show_agent_card(agent_row)
 
     export_columns = ["peer_rank", "outlet_id", "outlet_name", "performance_score", "health_category", "alert_level", "issue_tags", "insight", "recommendation"]
@@ -377,14 +378,14 @@ with agent_tab:
 
 with method_tab:
     st.markdown("### Scoring methodology")
-    st.markdown("<p class='section-note'>All scores and rankings are recalculated from source operating measures; uploaded derived columns are not trusted blindly.</p>", unsafe_allow_html=True)
+    st.markdown("<p class='section-note'>The supplied benchmarking and performance-score outputs are cross-validated, then joined to cleaned monthly operating records.</p>", unsafe_allow_html=True)
     method_cols = st.columns(5)
     descriptions = {
-        "Revenue target achievement": "Revenue divided by target, capped at 100.",
-        "Month-over-month growth": "-20%→0, 0%→50, +20%→100.",
-        "Customer rating": "Five-point rating converted to 100.",
-        "Complaint control": "Lower complaints produce a higher score.",
-        "On-time service": "Existing service percentage, bounded 0-100.",
+        "Sales & profit": "Sales rank 20% + profit rank 20%.",
+        "Margin & conversion": "Margin rank 15% + conversion rank 15%.",
+        "Average order value": "AOV rank contributes 10%.",
+        "Customer satisfaction": "Satisfaction rank contributes 10%.",
+        "Complaint control": "Lower complaint rank contributes 10%.",
     }
     for column, (name, weight) in zip(method_cols, SCORE_WEIGHTS.items()):
         with column:
@@ -394,14 +395,14 @@ with method_tab:
     h1, h2 = st.columns(2)
     with h1:
         st.dataframe(
-            pd.DataFrame({"Health category": HEALTH_ORDER, "Score range": ["85-100", "70-84.9", "55-69.9", "Below 55"]}),
+            pd.DataFrame({"Health category": HEALTH_ORDER, "Score range": ["80-100", "65-79.9", "50-64.9", "Below 50"]}),
             hide_index=True, width="stretch",
         )
     with h2:
         st.markdown(
             """
-            - **High:** critical score, severe revenue decline, complaint rate ≥7%, or on-time service <70%.
-            - **Medium:** score below 70, target achievement below 90%, complaint rate ≥5%, or service below 80%.
+            - **High:** Critical score, negative profit margin, or customer rating below 2.5.
+            - **Medium:** Needs Improvement, below-average benchmark, or an operating risk threshold is breached.
             - **Low:** no high- or medium-severity condition is present.
             """
         )
@@ -411,12 +412,12 @@ with method_tab:
     with q1:
         kpi_card("Validation", str(quality["status"]), "Schema and ranges")
     with q2:
-        kpi_card("Missing cells", str(quality["missing_cells"]), "Required measures", "good")
+        kpi_card("Imputed cells", str(quality["imputed_cells"]), "Median-cleaned inputs", "good")
     with q3:
-        kpi_card("Duplicate rows", str(quality["duplicate_outlet_months"]), "Outlet + month", "good")
+        kpi_card("Duplicates removed", str(quality["duplicates_removed"]), "Outlet + month", "good")
     with q4:
         kpi_card("Identity conflicts", str(quality["identity_conflicts"]), "ID/name/location", "good")
     with q5:
         kpi_card("AOV max variance", f"{quality['aov_reconciliation_max_error_pct']:.4f}%", "Revenue vs orders × AOV", "good")
 
-    st.info("Benchmark revenue is the monthly peer-group mean. Rankings use performance score first, followed by target achievement, revenue, and outlet ID as deterministic tie-breakers.")
+    st.info("Benchmark scores summarize 40 months of sales, profit, margin, conversion, order value, and satisfaction. Filtered peer ranking uses performance score, benchmark score, current revenue, and outlet ID as deterministic tie-breakers.")
