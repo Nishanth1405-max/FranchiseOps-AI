@@ -11,8 +11,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_PATH = (
     PROJECT_ROOT
     / "data"
-    / "raw"
-    / "FranchiseOps_AI_Milestone1_Member1_Large_Raw_Dataset.xlsx"
+    / "processed"
+    / "milestone1_clean_data.csv"
 )
 
 BENCHMARK_PATH = (
@@ -33,7 +33,7 @@ PERFORMANCE_PATH = (
 # =============================
 
 def load_data():
-    return pd.read_excel(DATA_PATH)
+    return pd.read_csv(DATA_PATH)
 
 
 def load_benchmark():
