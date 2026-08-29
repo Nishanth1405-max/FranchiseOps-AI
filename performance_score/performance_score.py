@@ -5,35 +5,56 @@ from pathlib import Path
 # Performance Score - Milestone 1
 # --------------------------------------------------
 
-# Project paths
 project_root = Path(__file__).resolve().parent.parent
-input_file = project_root / "performance_score" / "benchmark_output.csv"
-output_file = project_root / "performance_score" / "performance_score_output.csv"
 
-# Load benchmarking output
+input_file = (
+    project_root
+    / "benchmarking"
+    / "benchmark_output.csv"
+)
+
+output_file = (
+    project_root
+    / "performance_score"
+    / "performance_score_output.csv"
+)
+
+# Load corrected benchmarking output
 df = pd.read_csv(input_file)
+
+print("Benchmark records:", len(df))
 
 # --------------------------------------------------
 # Score components
 # --------------------------------------------------
 
-# Convert KPI ranks into performance percentages.
-# Rank 1 is the best, while rank 750 is the lowest.
 max_rank = df["Benchmark_Rank"].max()
 
-df["Sales_Score"] = (max_rank - df["Sales_Rank"] + 1) / max_rank * 100
-df["Profit_Score"] = (max_rank - df["Profit_Rank"] + 1) / max_rank * 100
-df["Margin_Score"] = (max_rank - df["Margin_Rank"] + 1) / max_rank * 100
+df["Sales_Score"] = (
+    (max_rank - df["Sales_Rank"] + 1) / max_rank * 100
+)
+
+df["Profit_Score"] = (
+    (max_rank - df["Profit_Rank"] + 1) / max_rank * 100
+)
+
+df["Margin_Score"] = (
+    (max_rank - df["Margin_Rank"] + 1) / max_rank * 100
+)
+
 df["Conversion_Score"] = (
     (max_rank - df["Conversion_Rank"] + 1) / max_rank * 100
 )
-df["AOV_Score"] = (max_rank - df["AOV_Rank"] + 1) / max_rank * 100
+
+df["AOV_Score"] = (
+    (max_rank - df["AOV_Rank"] + 1) / max_rank * 100
+)
+
 df["Satisfaction_Score"] = (
     (max_rank - df["Satisfaction_Rank"] + 1) / max_rank * 100
 )
 
-# Complaints are different:
-# fewer complaints = better performance.
+# Fewer complaints = better performance
 complaint_rank = df["Total_Complaints"].rank(
     ascending=True,
     method="min"
@@ -57,7 +78,9 @@ df["Performance_Score"] = (
     + df["Complaint_Score"] * 0.10
 )
 
-df["Performance_Score"] = df["Performance_Score"].round(2)
+df["Performance_Score"] = (
+    df["Performance_Score"].round(2)
+)
 
 # --------------------------------------------------
 # Performance Health Category
@@ -74,8 +97,8 @@ def classify_performance(score):
         return "Critical"
 
 
-df["Performance_Category"] = df["Performance_Score"].apply(
-    classify_performance
+df["Performance_Category"] = (
+    df["Performance_Score"].apply(classify_performance)
 )
 
 # --------------------------------------------------
@@ -89,7 +112,7 @@ df["Performance_Rank"] = (
 )
 
 # --------------------------------------------------
-# Select final output columns
+# Final output
 # --------------------------------------------------
 
 output_columns = [
@@ -103,11 +126,13 @@ output_columns = [
     "Performance_Category",
 ]
 
-performance_output = df[output_columns].sort_values(
-    "Performance_Rank"
+performance_output = (
+    df[output_columns]
+    .sort_values("Performance_Rank")
+    .reset_index(drop=True)
 )
 
-# Save output
+output_file.parent.mkdir(parents=True, exist_ok=True)
 performance_output.to_csv(output_file, index=False)
 
 print("Performance Score calculation completed.")
@@ -122,4 +147,6 @@ print(
 )
 
 print("\nTop 10 Performing Outlets:")
-print(performance_output.head(10).to_string(index=False))
+print(
+    performance_output.head(10).to_string(index=False)
+)
