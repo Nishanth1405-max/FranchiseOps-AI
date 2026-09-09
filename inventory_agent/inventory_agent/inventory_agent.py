@@ -200,6 +200,7 @@ output_columns = [
     "Agent_Priority",
     "Agent_Explanation",
 ]
+inventory_output = df[output_columns].copy()
 
 priority_order = pd.CategoricalDtype(
     categories=["High", "Medium", "Low"],
