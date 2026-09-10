@@ -1,4 +1,4 @@
-"""FranchiseOps AI - Milestone 1 Outlet Performance Dashboard."""
+"""FranchiseOps AI - Milestone 1 and 2 Outlet Intelligence Dashboard."""
 
 from __future__ import annotations
 
@@ -19,10 +19,15 @@ from src.analytics import (
     score_component_frame,
 )
 from src.data_loader import DataValidationError, load_outlet_data
+from src.milestone2_loader import Milestone2DataError, load_milestone2_outputs
 
 
 ROOT = Path(__file__).resolve().parent
 DATA_PATH = ROOT / "data" / "raw" / "franchiseops_filtered_outlet_data.csv"
+STAFF_AGENT_PATH = ROOT / "staff_agent" / "staff_agent_output.csv"
+MARKETING_AGENT_PATH = ROOT / "data" / "processed" / "marketing_agent_output.csv"
+INVENTORY_AGENT_PATH = ROOT / "data" / "processed" / "inventory_agent_output.csv"
+FORECAST_PATH = ROOT / "data" / "processed" / "demand_forecast_output.csv"
 
 st.set_page_config(
     page_title="FranchiseOps AI | Outlet Intelligence",
@@ -93,6 +98,21 @@ def get_data(path: str) -> tuple[pd.DataFrame, dict]:
     return calculate_performance_metrics(source), report.to_dict()
 
 
+@st.cache_data(show_spinner=False)
+def get_milestone2_data(
+    staff_path: str,
+    marketing_path: str,
+    inventory_path: str,
+    forecast_path: str,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    return load_milestone2_outputs(
+        staff_path,
+        marketing_path,
+        inventory_path,
+        forecast_path,
+    )
+
+
 def money(value: float) -> str:
     if abs(value) >= 10_000_000:
         return f"₹{value / 10_000_000:.2f} Cr"
@@ -138,15 +158,80 @@ def show_agent_card(row: pd.Series) -> None:
     )
 
 
+def show_milestone2_agent_card(
+    title: str,
+    meta: str,
+    insight: str,
+    recommendation: str,
+    severity: str,
+) -> None:
+    tone = {
+        "critical": "high",
+        "high": "high",
+        "needs attention": "medium",
+        "medium": "medium",
+        "stable": "low",
+        "low": "low",
+    }.get(severity.lower(), "medium")
+    st.markdown(
+        f"""<div class="agent-card {tone}">
+        <div class="agent-title">{html.escape(title)}</div>
+        <div class="agent-meta">{html.escape(meta)}</div>
+        <div class="agent-copy"><b>Finding:</b> {html.escape(insight)}<br><b>Action:</b> {html.escape(recommendation)}</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+
+def inventory_recommendation(row: pd.Series) -> str:
+    action = str(row["Agent_Action"])
+    replenishment = int(row["Recommended_Replenishment_Units"])
+    if action == "URGENT_REORDER":
+        return f"Place an urgent replenishment order for {replenishment:,} units."
+    if action == "REORDER":
+        return f"Plan replenishment for {replenishment:,} units before stock falls further."
+    if action == "REDUCE_STOCK":
+        return "Delay new purchases and rebalance excess stock to reduce holding cost."
+    if action == "MONITOR_WASTAGE":
+        return "Review stock rotation, expiry handling, and order quantities to reduce wastage."
+    return "Continue routine stock monitoring; no immediate replenishment action is required."
+
+
 try:
     data, quality = get_data(str(DATA_PATH))
 except (FileNotFoundError, DataValidationError) as exc:
     st.error(f"The dashboard could not load a valid dataset: {exc}")
     st.stop()
 
+milestone2_error = None
+try:
+    staff_data, marketing_data, inventory_data, forecast_data, milestone2_quality = get_milestone2_data(
+        str(STAFF_AGENT_PATH),
+        str(MARKETING_AGENT_PATH),
+        str(INVENTORY_AGENT_PATH),
+        str(FORECAST_PATH),
+    )
+except (FileNotFoundError, Milestone2DataError) as exc:
+    milestone2_error = str(exc)
+    staff_data = pd.DataFrame()
+    marketing_data = pd.DataFrame()
+    inventory_data = pd.DataFrame()
+    forecast_data = pd.DataFrame()
+    milestone2_quality = {
+        "staff_outlets": 0,
+        "marketing_outlets": 0,
+        "inventory_outlets": 0,
+        "forecast_outlets": 0,
+        "inventory_records": 0,
+        "forecast_records": 0,
+        "forecast_skus": 0,
+        "available_forecasts": 0,
+        "shared_outlets": 0,
+    }
+
 
 st.sidebar.markdown("## FranchiseOps AI")
-st.sidebar.caption("Milestone 1 · Outlet Intelligence")
+st.sidebar.caption("Milestones 1 & 2 · Outlet Intelligence")
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Analysis filters")
 
@@ -195,12 +280,15 @@ snapshot = rerank_snapshot(filtered[filtered["date"] == snapshot_month])
 st.sidebar.markdown("---")
 st.sidebar.markdown(f"<span class='status-pill'>● Data quality {quality['status']}</span>", unsafe_allow_html=True)
 st.sidebar.caption(f"{quality['rows']} validated records · {quality['outlets']} outlets · {quality['months']} months")
+st.sidebar.caption(
+    f"Milestone 2 · {milestone2_quality['shared_outlets']} shared outlets · All four modules active"
+)
 
 month_label = pd.Timestamp(snapshot_month).strftime("%B %Y")
 st.title("Outlet Performance Intelligence")
 st.markdown(
-    f"""<div class="hero"><div class="hero-kicker">FranchiseOps AI · Milestone 1</div>
-    <p class="hero-copy">Monitor revenue, compare franchise locations, measure outlet health, and convert operating signals into prioritized actions. Current peer snapshot: <b>{month_label}</b>.</p></div>""",
+    f"""<div class="hero"><div class="hero-kicker">FranchiseOps AI · Milestones 1 & 2</div>
+    <p class="hero-copy">Monitor revenue, compare franchise locations, measure outlet health, and convert performance, staff, marketing, inventory, and demand signals into prioritized actions. Current peer snapshot: <b>{month_label}</b>.</p></div>""",
     unsafe_allow_html=True,
 )
 
@@ -349,30 +437,476 @@ with outlet_tab:
 
 
 with agent_tab:
-    st.markdown("### Outlet Performance Agent")
-    st.markdown("<p class='section-note'>Deterministic, explainable findings ranked by alert severity and performance score. No external API key is required.</p>", unsafe_allow_html=True)
-    priority_order = pd.Categorical(snapshot["alert_level"], categories=["High", "Medium", "Low"], ordered=True)
-    agent_rows = snapshot.assign(_priority=priority_order).sort_values(["_priority", "performance_score"])
-    high_count = int((agent_rows["alert_level"] == "High").sum())
-    medium_count = int((agent_rows["alert_level"] == "Medium").sum())
-    low_count = int((agent_rows["alert_level"] == "Low").sum())
-    a1, a2, a3 = st.columns(3)
-    with a1:
-        kpi_card("Immediate action", str(high_count), "High-severity outlet alerts", "bad" if high_count else "good")
-    with a2:
-        kpi_card("Watch list", str(medium_count), "Medium-severity outlet alerts", "warn" if medium_count else "good")
-    with a3:
-        kpi_card("Stable", str(low_count), "Low-severity outlets", "good")
-
-    st.markdown("#### Prioritized action queue")
-    for _, agent_row in agent_rows.iterrows():
-        show_agent_card(agent_row)
-
-    export_columns = ["peer_rank", "outlet_id", "outlet_name", "performance_score", "health_category", "alert_level", "issue_tags", "insight", "recommendation"]
-    st.download_button(
-        "Download agent insights (CSV)", agent_rows[export_columns].to_csv(index=False).encode("utf-8"),
-        file_name=f"outlet_agent_insights_{pd.Timestamp(snapshot_month):%Y_%m}.csv", mime="text/csv",
+    st.markdown("### Multi-agent decision centre")
+    st.markdown(
+        "<p class='section-note'>Milestone 1 outlet intelligence and Milestone 2 staff, marketing, inventory, and demand analysis in one consistent dashboard. All recommendations are deterministic and explainable.</p>",
+        unsafe_allow_html=True,
     )
+    outlet_agent_tab, staff_agent_tab, marketing_agent_tab, inventory_agent_tab = st.tabs(
+        ["Outlet Performance", "Staff Agent", "Marketing Agent", "Inventory & Forecasting"]
+    )
+
+    with outlet_agent_tab:
+        st.markdown("#### Outlet Performance Agent")
+        priority_order = pd.Categorical(snapshot["alert_level"], categories=["High", "Medium", "Low"], ordered=True)
+        agent_rows = snapshot.assign(_priority=priority_order).sort_values(["_priority", "performance_score"])
+        high_count = int((agent_rows["alert_level"] == "High").sum())
+        medium_count = int((agent_rows["alert_level"] == "Medium").sum())
+        low_count = int((agent_rows["alert_level"] == "Low").sum())
+        a1, a2, a3 = st.columns(3)
+        with a1:
+            kpi_card("Immediate action", str(high_count), "High-severity outlet alerts", "bad" if high_count else "good")
+        with a2:
+            kpi_card("Watch list", str(medium_count), "Medium-severity outlet alerts", "warn" if medium_count else "good")
+        with a3:
+            kpi_card("Stable", str(low_count), "Low-severity outlets", "good")
+
+        st.markdown("#### Prioritized action queue")
+        for _, agent_row in agent_rows.iterrows():
+            show_agent_card(agent_row)
+
+        export_columns = ["peer_rank", "outlet_id", "outlet_name", "performance_score", "health_category", "alert_level", "issue_tags", "insight", "recommendation"]
+        st.download_button(
+            "Download agent insights (CSV)", agent_rows[export_columns].to_csv(index=False).encode("utf-8"),
+            file_name=f"outlet_agent_insights_{pd.Timestamp(snapshot_month):%Y_%m}.csv", mime="text/csv",
+        )
+
+    with staff_agent_tab:
+        st.markdown("#### Staff Agent")
+        st.markdown(
+            "<p class='section-note'>People and service health based on employee levels, turnover, customer satisfaction, and complaints.</p>",
+            unsafe_allow_html=True,
+        )
+        if milestone2_error:
+            st.error(f"Staff Agent data is unavailable: {milestone2_error}")
+        else:
+            staff_ids = staff_data["Outlet_ID"].tolist()
+            staff_names = staff_data.set_index("Outlet_ID")["Outlet_Name"].to_dict()
+            default_staff = staff_ids.index("OUT0706") if "OUT0706" in staff_ids else 0
+            staff_outlet_id = st.selectbox(
+                "Select Milestone 2 outlet",
+                staff_ids,
+                index=default_staff,
+                format_func=lambda value: f"{value} · {staff_names[value]}",
+                key="staff_agent_outlet",
+            )
+            staff_row = staff_data.set_index("Outlet_ID").loc[staff_outlet_id]
+            staff_tone = "bad" if staff_row["Staff_Status"] == "Critical" else "warn" if staff_row["Staff_Status"] == "Needs Attention" else "good"
+
+            s1, s2, s3, s4, s5 = st.columns(5)
+            with s1:
+                kpi_card("Staff status", str(staff_row["Staff_Status"]), "Quartile-based risk rules", staff_tone)
+            with s2:
+                kpi_card("Average employees", f"{staff_row['Avg_Employees']:.1f}", "Outlet staffing level")
+            with s3:
+                kpi_card("Employee turnover", f"{staff_row['Avg_Employee_Turnover']:.2f}%", "Lower is better", staff_tone)
+            with s4:
+                kpi_card("Customer satisfaction", f"{staff_row['Avg_Customer_Satisfaction']:.2f}/5", "Service outcome", staff_tone)
+            with s5:
+                kpi_card("Complaints", f"{int(staff_row['Total_Complaints']):,}", "Total records analyzed", staff_tone)
+
+            show_milestone2_agent_card(
+                f"{staff_outlet_id} · {staff_row['Outlet_Name']}",
+                f"Staff status: {staff_row['Staff_Status']}",
+                str(staff_row["Insight"]),
+                str(staff_row["Recommendation"]),
+                str(staff_row["Staff_Status"]),
+            )
+
+            staff_left, staff_right = st.columns([1.65, 1])
+            staff_scatter = px.scatter(
+                staff_data,
+                x="Avg_Employee_Turnover",
+                y="Avg_Customer_Satisfaction",
+                size="Total_Complaints",
+                color="Staff_Status",
+                color_discrete_map={"Critical": "#FB7185", "Needs Attention": "#FBBF24", "Stable": "#20D9A2"},
+                hover_name="Outlet_Name",
+                hover_data={"Outlet_ID": True, "Avg_Employees": ":.1f", "Total_Complaints": ":,.0f"},
+                labels={"Avg_Employee_Turnover": "Employee turnover (%)", "Avg_Customer_Satisfaction": "Customer satisfaction (1-5)", "Staff_Status": "Status"},
+                title="Staff risk matrix",
+            )
+            with staff_left:
+                st.plotly_chart(style_figure(staff_scatter), width="stretch", config={"displayModeBar": False, "responsive": True})
+
+            staff_counts = staff_data["Staff_Status"].value_counts().reindex(["Critical", "Needs Attention", "Stable"], fill_value=0)
+            staff_donut = go.Figure(go.Pie(
+                labels=staff_counts.index,
+                values=staff_counts.values,
+                hole=.64,
+                marker_colors=["#FB7185", "#FBBF24", "#20D9A2"],
+                textinfo="label+value",
+                sort=False,
+            ))
+            staff_donut.update_layout(
+                title="Staff status mix",
+                showlegend=False,
+                annotations=[dict(text=f"{len(staff_data)}<br>outlets", x=.5, y=.5, showarrow=False, font_size=17)],
+            )
+            with staff_right:
+                st.plotly_chart(style_figure(staff_donut), width="stretch", config={"displayModeBar": False, "responsive": True})
+
+            staff_queue = staff_data.assign(
+                _priority=staff_data["Staff_Status"].map({"Critical": 0, "Needs Attention": 1, "Stable": 2})
+            ).sort_values(["_priority", "Avg_Employee_Turnover", "Total_Complaints"], ascending=[True, False, False])
+            st.markdown("#### Highest-priority staff outlets")
+            st.dataframe(
+                staff_queue[["Outlet_ID", "Outlet_Name", "Avg_Employee_Turnover", "Avg_Customer_Satisfaction", "Total_Complaints", "Staff_Status"]].head(20),
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Avg_Employee_Turnover": st.column_config.NumberColumn("Turnover", format="%.2f%%"),
+                    "Avg_Customer_Satisfaction": st.column_config.NumberColumn("Satisfaction", format="%.2f"),
+                    "Total_Complaints": st.column_config.NumberColumn("Complaints", format="%d"),
+                },
+            )
+            st.download_button(
+                "Download Staff Agent output (CSV)",
+                staff_data.to_csv(index=False).encode("utf-8"),
+                file_name="staff_agent_output.csv",
+                mime="text/csv",
+            )
+
+    with marketing_agent_tab:
+        st.markdown("#### Marketing Agent")
+        st.markdown(
+            "<p class='section-note'>Campaign efficiency and conversion analysis using spend, sales revenue, orders, and revenue generated per marketing rupee.</p>",
+            unsafe_allow_html=True,
+        )
+        if milestone2_error:
+            st.error(f"Marketing Agent data is unavailable: {milestone2_error}")
+        else:
+            marketing_ids = marketing_data["Outlet_ID"].tolist()
+            default_marketing = marketing_ids.index("OUT0706") if "OUT0706" in marketing_ids else 0
+            marketing_outlet_id = st.selectbox(
+                "Select Milestone 2 outlet",
+                marketing_ids,
+                index=default_marketing,
+                key="marketing_agent_outlet",
+            )
+            marketing_row = marketing_data.set_index("Outlet_ID").loc[marketing_outlet_id]
+            marketing_tone = "bad" if marketing_row["Alert_Level"] == "High" else "warn" if marketing_row["Alert_Level"] == "Medium" else "good"
+
+            m1, m2, m3, m4, m5 = st.columns(5)
+            with m1:
+                kpi_card("Marketing category", str(marketing_row["Marketing_Category"]), f"{marketing_row['Alert_Level']} alert", marketing_tone)
+            with m2:
+                kpi_card("Marketing spend", money(float(marketing_row["Total_Marketing_Spend"])), "Total analyzed spend")
+            with m3:
+                kpi_card("Sales revenue", money(float(marketing_row["Total_Sales_Revenue"])), "Attributed outlet revenue", "good")
+            with m4:
+                kpi_card("Revenue per ₹1", f"₹{marketing_row['Revenue_Per_Marketing_Rupee']:.2f}", "Marketing efficiency", marketing_tone)
+            with m5:
+                kpi_card("Conversion rate", f"{marketing_row['Average_Conversion_Rate']:.2f}%", f"Spend ratio {marketing_row['Marketing_Spend_Percentage']:.2f}%", marketing_tone)
+
+            show_milestone2_agent_card(
+                f"{marketing_outlet_id} · Marketing performance",
+                f"{marketing_row['Marketing_Category']} · {marketing_row['Alert_Level']} alert · {int(marketing_row['Records'])} records",
+                str(marketing_row["Marketing_Insights"]),
+                str(marketing_row["Recommendations"]),
+                str(marketing_row["Alert_Level"]),
+            )
+
+            marketing_left, marketing_right = st.columns([1.65, 1])
+            marketing_scatter = px.scatter(
+                marketing_data,
+                x="Revenue_Per_Marketing_Rupee",
+                y="Average_Conversion_Rate",
+                size="Total_Marketing_Spend",
+                color="Marketing_Category",
+                color_discrete_map={"Needs Improvement": "#FB7185", "Moderate": "#FBBF24", "High Performing": "#20D9A2"},
+                hover_name="Outlet_ID",
+                hover_data={"Total_Sales_Revenue": ":,.0f", "Marketing_Spend_Percentage": ":.2f"},
+                labels={"Revenue_Per_Marketing_Rupee": "Revenue per marketing rupee", "Average_Conversion_Rate": "Conversion rate (%)", "Marketing_Category": "Category"},
+                title="Marketing efficiency matrix",
+            )
+            with marketing_left:
+                st.plotly_chart(style_figure(marketing_scatter), width="stretch", config={"displayModeBar": False, "responsive": True})
+
+            marketing_counts = marketing_data["Marketing_Category"].value_counts().reindex(["Needs Improvement", "Moderate", "High Performing"], fill_value=0)
+            marketing_donut = go.Figure(go.Pie(
+                labels=marketing_counts.index,
+                values=marketing_counts.values,
+                hole=.64,
+                marker_colors=["#FB7185", "#FBBF24", "#20D9A2"],
+                textinfo="label+value",
+                sort=False,
+            ))
+            marketing_donut.update_layout(
+                title="Marketing category mix",
+                showlegend=False,
+                annotations=[dict(text=f"{len(marketing_data)}<br>outlets", x=.5, y=.5, showarrow=False, font_size=17)],
+            )
+            with marketing_right:
+                st.plotly_chart(style_figure(marketing_donut), width="stretch", config={"displayModeBar": False, "responsive": True})
+
+            marketing_queue = marketing_data.assign(
+                _priority=marketing_data["Alert_Level"].map({"High": 0, "Medium": 1, "Low": 2})
+            ).sort_values(["_priority", "Revenue_Per_Marketing_Rupee", "Average_Conversion_Rate"])
+            st.markdown("#### Highest-priority marketing outlets")
+            st.dataframe(
+                marketing_queue[["Outlet_ID", "Revenue_Per_Marketing_Rupee", "Average_Conversion_Rate", "Marketing_Spend_Percentage", "Marketing_Category", "Alert_Level"]].head(20),
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Revenue_Per_Marketing_Rupee": st.column_config.NumberColumn("Revenue / ₹1", format="₹ %.2f"),
+                    "Average_Conversion_Rate": st.column_config.NumberColumn("Conversion", format="%.2f%%"),
+                    "Marketing_Spend_Percentage": st.column_config.NumberColumn("Spend ratio", format="%.2f%%"),
+                },
+            )
+            st.download_button(
+                "Download Marketing Agent output (CSV)",
+                marketing_data.to_csv(index=False).encode("utf-8"),
+                file_name="marketing_agent_output.csv",
+                mime="text/csv",
+            )
+
+    with inventory_agent_tab:
+        st.markdown("#### Inventory Agent and Forecasting")
+        st.markdown(
+            "<p class='section-note'>Current stock health, replenishment decisions, wastage monitoring, and a three-month moving-average demand forecast.</p>",
+            unsafe_allow_html=True,
+        )
+        if milestone2_error:
+            st.error(f"Inventory and forecasting data is unavailable: {milestone2_error}")
+        else:
+            inventory_names = (
+                inventory_data[["Outlet_ID", "Outlet_Name"]]
+                .drop_duplicates("Outlet_ID")
+                .set_index("Outlet_ID")["Outlet_Name"]
+                .to_dict()
+            )
+            inventory_ids = sorted(inventory_names)
+            default_inventory = inventory_ids.index("OUT0706") if "OUT0706" in inventory_ids else 0
+            inventory_outlet_id = st.selectbox(
+                "Select Milestone 2 outlet",
+                inventory_ids,
+                index=default_inventory,
+                format_func=lambda value: f"{value} · {inventory_names[value]}",
+                key="inventory_agent_outlet",
+            )
+
+            inventory_history = inventory_data[
+                inventory_data["Outlet_ID"] == inventory_outlet_id
+            ].sort_values("Month")
+            inventory_row = inventory_history.iloc[-1]
+            selected_sku = str(inventory_row["SKU_ID"])
+            forecast_history = forecast_data[
+                (forecast_data["Outlet_ID"] == inventory_outlet_id)
+                & (forecast_data["SKU_ID"] == selected_sku)
+            ].sort_values("Month")
+            latest_forecast = forecast_history[
+                "Demand_Forecast_Next_Month_Units"
+            ].dropna().iloc[-1]
+            inventory_tone = (
+                "bad"
+                if inventory_row["Agent_Priority"] == "High"
+                else "warn"
+                if inventory_row["Agent_Priority"] == "Medium"
+                else "good"
+            )
+            inventory_month = pd.Timestamp(inventory_row["Month"]).strftime("%B %Y")
+
+            v1, v2, v3, v4, v5 = st.columns(5)
+            with v1:
+                kpi_card(
+                    "Stock status",
+                    str(inventory_row["Stock_Status"]),
+                    f"{inventory_row['Agent_Priority']} priority",
+                    inventory_tone,
+                )
+            with v2:
+                kpi_card(
+                    "Closing stock",
+                    f"{int(inventory_row['Closing_Stock_Units']):,}",
+                    f"Safety stock {int(inventory_row['Safety_Stock_Units']):,}",
+                )
+            with v3:
+                kpi_card(
+                    "Reorder point",
+                    f"{int(inventory_row['Reorder_Point_Units']):,}",
+                    f"Availability {inventory_row['Stock_Availability_%']:.1f}%",
+                    inventory_tone,
+                )
+            with v4:
+                kpi_card(
+                    "3-month forecast",
+                    f"{latest_forecast:,.0f}",
+                    "Prior-three-month demand estimate",
+                )
+            with v5:
+                kpi_card(
+                    "Replenishment",
+                    f"{int(inventory_row['Recommended_Replenishment_Units']):,}",
+                    f"Action: {str(inventory_row['Agent_Action']).replace('_', ' ').title()}",
+                    inventory_tone,
+                )
+
+            show_milestone2_agent_card(
+                f"{inventory_outlet_id} · {selected_sku}",
+                (
+                    f"{inventory_month} · {inventory_row['Product_Category']} · "
+                    f"Freshness {inventory_row['Freshness_Rate_%']:.1f}% · "
+                    f"Wastage {int(inventory_row['Wastage_Units']):,} units"
+                ),
+                str(inventory_row["Agent_Explanation"]),
+                inventory_recommendation(inventory_row),
+                str(inventory_row["Agent_Priority"]),
+            )
+
+            latest_inventory = (
+                inventory_data.sort_values(["Outlet_ID", "SKU_ID", "Month"])
+                .groupby(["Outlet_ID", "SKU_ID"], as_index=False, group_keys=False)
+                .tail(1)
+            )
+            inventory_left, inventory_right = st.columns([1.65, 1])
+            stock_trend = go.Figure()
+            stock_trend.add_trace(
+                go.Scatter(
+                    x=inventory_history["Month"],
+                    y=inventory_history["Closing_Stock_Units"],
+                    name="Closing stock",
+                    mode="lines+markers",
+                    line=dict(color="#2DD4BF", width=3),
+                )
+            )
+            stock_trend.add_trace(
+                go.Scatter(
+                    x=inventory_history["Month"],
+                    y=inventory_history["Reorder_Point_Units"],
+                    name="Reorder point",
+                    mode="lines",
+                    line=dict(color="#FBBF24", width=2, dash="dash"),
+                )
+            )
+            stock_trend.add_trace(
+                go.Scatter(
+                    x=inventory_history["Month"],
+                    y=inventory_history["Safety_Stock_Units"],
+                    name="Safety stock",
+                    mode="lines",
+                    line=dict(color="#60A5FA", width=2, dash="dot"),
+                )
+            )
+            stock_trend.update_layout(
+                title="Stock level vs inventory thresholds",
+                yaxis_title="Units",
+                hovermode="x unified",
+            )
+            with inventory_left:
+                st.plotly_chart(
+                    style_figure(stock_trend),
+                    width="stretch",
+                    config={"displayModeBar": False, "responsive": True},
+                )
+
+            action_order = [
+                "URGENT_REORDER",
+                "REORDER",
+                "MONITOR_WASTAGE",
+                "REDUCE_STOCK",
+                "NO_ACTION",
+            ]
+            action_counts = latest_inventory["Agent_Action"].value_counts().reindex(
+                action_order, fill_value=0
+            )
+            action_donut = go.Figure(
+                go.Pie(
+                    labels=[label.replace("_", " ").title() for label in action_counts.index],
+                    values=action_counts.values,
+                    hole=.64,
+                    marker_colors=["#FB7185", "#FBBF24", "#A78BFA", "#60A5FA", "#20D9A2"],
+                    textinfo="label+value",
+                    sort=False,
+                )
+            )
+            action_donut.update_layout(
+                title="Latest inventory action mix",
+                showlegend=False,
+                annotations=[dict(text=f"{len(latest_inventory)}<br>SKUs", x=.5, y=.5, showarrow=False, font_size=17)],
+            )
+            with inventory_right:
+                st.plotly_chart(
+                    style_figure(action_donut),
+                    width="stretch",
+                    config={"displayModeBar": False, "responsive": True},
+                )
+
+            demand_chart = go.Figure()
+            demand_chart.add_trace(
+                go.Scatter(
+                    x=forecast_history["Month"],
+                    y=forecast_history["Inventory_Units_Sold"],
+                    name="Actual units sold",
+                    mode="lines+markers",
+                    line=dict(color="#2DD4BF", width=3),
+                )
+            )
+            demand_chart.add_trace(
+                go.Scatter(
+                    x=forecast_history["Month"],
+                    y=forecast_history["Demand_Forecast_Next_Month_Units"],
+                    name="3-month forecast",
+                    mode="lines+markers",
+                    line=dict(color="#FBBF24", width=2, dash="dash"),
+                )
+            )
+            demand_chart.update_layout(
+                title="Demand history and moving-average forecast",
+                yaxis_title="Units",
+                hovermode="x unified",
+            )
+            st.plotly_chart(
+                style_figure(demand_chart, 400),
+                width="stretch",
+                config={"displayModeBar": False, "responsive": True},
+            )
+
+            inventory_queue = latest_inventory.assign(
+                _priority=latest_inventory["Agent_Priority"].map(
+                    {"High": 0, "Medium": 1, "Low": 2}
+                )
+            ).sort_values(
+                ["_priority", "Stock_Availability_%", "Recommended_Replenishment_Units"],
+                ascending=[True, True, False],
+            )
+            st.markdown("#### Latest prioritized inventory queue")
+            st.dataframe(
+                inventory_queue[
+                    [
+                        "Outlet_ID",
+                        "SKU_ID",
+                        "Stock_Status",
+                        "Closing_Stock_Units",
+                        "Stock_Availability_%",
+                        "Recommended_Replenishment_Units",
+                        "Agent_Action",
+                        "Agent_Priority",
+                    ]
+                ].head(25),
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Closing_Stock_Units": st.column_config.NumberColumn("Closing stock", format="%d"),
+                    "Stock_Availability_%": st.column_config.NumberColumn("Availability", format="%.1f%%"),
+                    "Recommended_Replenishment_Units": st.column_config.NumberColumn("Replenish", format="%d"),
+                },
+            )
+            inventory_download, forecast_download = st.columns(2)
+            with inventory_download:
+                st.download_button(
+                    "Download Inventory Agent output (CSV)",
+                    inventory_data.to_csv(index=False, date_format="%Y-%m").encode("utf-8"),
+                    file_name="inventory_agent_output.csv",
+                    mime="text/csv",
+                )
+            with forecast_download:
+                st.download_button(
+                    "Download Demand Forecast output (CSV)",
+                    forecast_data.to_csv(index=False, date_format="%Y-%m-%d").encode("utf-8"),
+                    file_name="demand_forecast_output.csv",
+                    mime="text/csv",
+                )
 
 
 with method_tab:
@@ -405,6 +939,22 @@ with method_tab:
             - **Low:** no high- or medium-severity condition is present.
             """
         )
+
+    st.markdown("#### Milestone 2 integration")
+    i1, i2, i3, i4, i5 = st.columns(5)
+    with i1:
+        kpi_card("Staff Agent coverage", str(milestone2_quality["staff_outlets"]), "Validated outlet outputs", "good" if not milestone2_error else "bad")
+    with i2:
+        kpi_card("Marketing coverage", str(milestone2_quality["marketing_outlets"]), "Validated outlet outputs", "good" if not milestone2_error else "bad")
+    with i3:
+        kpi_card("Inventory records", f"{milestone2_quality['inventory_records']:,}", "Unique outlet/SKU/month", "good" if not milestone2_error else "bad")
+    with i4:
+        kpi_card("Forecasted SKUs", str(milestone2_quality["forecast_skus"]), "Latest forecasts available", "good" if not milestone2_error else "bad")
+    with i5:
+        kpi_card("Shared coverage", str(milestone2_quality["shared_outlets"]), "All four modules", "good" if not milestone2_error else "bad")
+    st.caption(
+        "Staff and Marketing use explainable quartile rules. Inventory uses stock-status, replenishment, and wastage rules. Forecasting uses the previous three months of demand after removing 120 supplied duplicate test rows."
+    )
 
     st.markdown("#### Data quality")
     q1, q2, q3, q4, q5 = st.columns(5)
