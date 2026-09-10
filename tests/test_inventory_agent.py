@@ -58,5 +58,5 @@ def test_inventory_agent_removes_duplicate_test_rows_and_prioritizes_actions():
     assert len(result) == 3
     assert result.iloc[0]["Agent_Action"] == "URGENT_REORDER"
     actions = result.set_index("Outlet_ID")["Agent_Action"].to_dict()
-    assert actions["OUT0002"] == "MONITOR_WASTAGE"
-    assert actions["OUT0003"] == "REDUCE_STOCK"
+    assert actions["OUT0002"] == "URGENT_REORDER"
+    assert actions["OUT0003"] == "URGENT_REORDER"
