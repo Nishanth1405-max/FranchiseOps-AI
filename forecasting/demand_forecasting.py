@@ -1,11 +1,10 @@
-
-
 # --------------------------------------------------
 # FranchiseOps AI - Demand Forecasting
 # Milestone 2 - Inventory Forecasting
 # --------------------------------------------------
 
 from pathlib import Path
+
 import pandas as pd
 
 
@@ -36,6 +35,13 @@ OUTPUT_FILE = (
 
 FORECAST_WINDOW = 3
 
+SERIES_COLUMNS = [
+    "Outlet_ID",
+    "SKU_ID",
+]
+
+DUPLICATE_KEY_COLUMNS = SERIES_COLUMNS + ["Month"]
+
 REQUIRED_COLUMNS = [
     "Outlet_ID",
     "SKU_ID",
@@ -45,19 +51,17 @@ REQUIRED_COLUMNS = [
 
 
 # --------------------------------------------------
-# Load Data
+# Load Inventory Data
 # --------------------------------------------------
 
 def load_inventory_data() -> pd.DataFrame:
     """Load inventory data from the raw Excel dataset."""
 
-    df = pd.read_excel(
+    return pd.read_excel(
         INPUT_FILE,
         sheet_name="Raw_Outlet_Data",
         usecols=REQUIRED_COLUMNS,
     )
-
-    return df
 
 
 # --------------------------------------------------
@@ -81,6 +85,9 @@ def validate_data(df: pd.DataFrame) -> None:
     if df.empty:
         raise ValueError("Inventory dataset is empty.")
 
+    if df["Outlet_ID"].isna().any():
+        raise ValueError("Outlet_ID contains missing values.")
+
     if df["SKU_ID"].isna().any():
         raise ValueError("SKU_ID contains missing values.")
 
@@ -94,6 +101,44 @@ def validate_data(df: pd.DataFrame) -> None:
 
 
 # --------------------------------------------------
+# Clean Data
+# --------------------------------------------------
+
+def clean_inventory_data(
+    df: pd.DataFrame,
+) -> tuple[pd.DataFrame, int]:
+    """
+    Convert Month to datetime and remove duplicate
+    Outlet_ID + SKU_ID + Month records.
+    """
+
+    df = df.copy()
+
+    df["Month"] = pd.to_datetime(
+        df["Month"].astype(str),
+        format="%Y-%m",
+    )
+
+    duplicate_count = int(
+        df.duplicated(
+            DUPLICATE_KEY_COLUMNS,
+            keep="first",
+        ).sum()
+    )
+
+    df = (
+        df.drop_duplicates(
+            subset=DUPLICATE_KEY_COLUMNS,
+            keep="first",
+        )
+        .sort_values(DUPLICATE_KEY_COLUMNS)
+        .reset_index(drop=True)
+    )
+
+    return df, duplicate_count
+
+
+# --------------------------------------------------
 # Forecasting Logic
 # --------------------------------------------------
 
@@ -102,44 +147,30 @@ def calculate_forecast(df: pd.DataFrame) -> pd.DataFrame:
     Calculate next-month demand using a 3-month
     historical moving average.
 
-    Forecast(t) =
-        Average(
-            Demand(t-1),
-            Demand(t-2),
-            Demand(t-3)
-        )
-
-    Forecast is calculated separately for each SKU.
+    Each forecast is calculated separately for each
+    Outlet_ID + SKU_ID series.
     """
 
     df = df.copy()
 
-    # Convert month into a proper datetime value
-    df["Month"] = pd.to_datetime(
-        df["Month"].astype(str),
-        format="%Y-%m",
-    )
-
-    # Sort chronologically for every SKU
     df = df.sort_values(
-        ["SKU_ID", "Month"]
+        SERIES_COLUMNS + ["Month"]
     )
 
-    # 3-month moving average of PREVIOUS demand
     df["Demand_Forecast_Next_Month_Units"] = (
-        df.groupby("SKU_ID")["Inventory_Units_Sold"]
+        df.groupby(SERIES_COLUMNS)["Inventory_Units_Sold"]
         .transform(
-            lambda series:
-            series.shift(1)
-            .rolling(
-                window=FORECAST_WINDOW,
-                min_periods=FORECAST_WINDOW,
+            lambda series: (
+                series.shift(1)
+                .rolling(
+                    window=FORECAST_WINDOW,
+                    min_periods=FORECAST_WINDOW,
+                )
+                .mean()
             )
-            .mean()
         )
     )
 
-    # Round forecast to 2 decimal places
     df["Demand_Forecast_Next_Month_Units"] = (
         df["Demand_Forecast_Next_Month_Units"]
         .round(2)
@@ -153,19 +184,13 @@ def calculate_forecast(df: pd.DataFrame) -> pd.DataFrame:
 # --------------------------------------------------
 
 def get_latest_forecast(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Return the most recent available record for each SKU.
-    This represents the forecast that can be used for
-    the next planning period.
-    """
+    """Return the latest available forecast for every outlet-SKU."""
 
     latest_month = df["Month"].max()
 
-    latest = df[
+    return df[
         df["Month"] == latest_month
     ].copy()
-
-    return latest
 
 
 # --------------------------------------------------
@@ -173,7 +198,7 @@ def get_latest_forecast(df: pd.DataFrame) -> pd.DataFrame:
 # --------------------------------------------------
 
 def save_forecast(df: pd.DataFrame) -> None:
-    """Save forecast results to CSV."""
+    """Save all historical forecast results to CSV."""
 
     OUTPUT_FILE.parent.mkdir(
         parents=True,
@@ -199,7 +224,6 @@ def save_forecast(df: pd.DataFrame) -> None:
 # --------------------------------------------------
 
 def main() -> None:
-
     print("Starting demand forecasting...")
 
     # 1. Load
@@ -210,26 +234,34 @@ def main() -> None:
     # 2. Validate
     validate_data(df)
 
-    # 3. Calculate forecast
-    forecast_df = calculate_forecast(df)
+    # 3. Clean duplicate outlet-SKU-month records
+    clean_df, duplicate_count = clean_inventory_data(df)
 
-    # 4. Get latest forecast
-    latest_forecast = get_latest_forecast(
-        forecast_df
+    print(f"Duplicate records removed: {duplicate_count:,}")
+    print(
+        f"Records used for forecasting: "
+        f"{len(clean_df):,}"
     )
 
-    # 5. Save complete forecasting output
+    # 4. Calculate outlet-level forecasts
+    forecast_df = calculate_forecast(clean_df)
+
+    # 5. Get the latest forecast for every outlet-SKU
+    latest_forecast = get_latest_forecast(forecast_df)
+
+    # 6. Save all forecast results
     save_forecast(forecast_df)
 
     print("\nForecasting completed.")
+
     print(
         f"Latest historical month: "
         f"{latest_forecast['Month'].max():%Y-%m}"
     )
 
     print(
-        f"SKUs forecasted: "
-        f"{latest_forecast['SKU_ID'].nunique():,}"
+        f"Outlet-SKU series forecasted: "
+        f"{latest_forecast.groupby(SERIES_COLUMNS).ngroups:,}"
     )
 
     print(
@@ -242,6 +274,7 @@ def main() -> None:
     print(
         latest_forecast[
             [
+                "Outlet_ID",
                 "SKU_ID",
                 "Month",
                 "Inventory_Units_Sold",

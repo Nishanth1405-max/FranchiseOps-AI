@@ -1,3 +1,5 @@
+import math
+
 import pandas as pd
 from pathlib import Path
 
@@ -76,101 +78,120 @@ if missing_columns:
 # Inventory Agent Logic
 # --------------------------------------------------
 
-def generate_inventory_action(row):
+DAYS_PER_MONTH = 30
+URGENT_REORDER_RATIO = 0.50
+OVERSTOCK_RATIO = 2.00
+WASTAGE_RATE_ALERT_PERCENT = 5.00
+LOW_FRESHNESS_PERCENT = 95.00
+SHORT_SHELF_LIFE_DAYS = 7
 
-    stock_status = row["Stock_Status"]
-    replenishment = row["Replenishment_Required"]
-    product_type = row["Product_Type"]
 
-    if stock_status == "Critical":
-        return "URGENT_REORDER"
+def calculate_inventory_metrics(row):
+    """Calculate operational inventory metrics without relying on source labels."""
+    closing_stock = max(float(row["Closing_Stock_Units"]), 0)
+    safety_stock = max(float(row["Safety_Stock_Units"]), 0)
+    reorder_point = max(float(row["Reorder_Point_Units"]), 0)
+    forecast = max(float(row["Demand_Forecast_Next_Month_Units"]), 0)
+    lead_time_days = max(float(row["Supplier_Lead_Time_Days"]), 0)
+    wastage_units = max(float(row["Wastage_Units"]), 0)
 
-    elif stock_status == "Low":
-        return "REORDER"
+    daily_demand = forecast / DAYS_PER_MONTH
+    lead_time_demand = daily_demand * lead_time_days
+    projected_stock_at_arrival = closing_stock - lead_time_demand
+    days_of_stock_cover = (
+        closing_stock / daily_demand if daily_demand else math.inf
+    )
+    calculated_replenishment = max(
+        0,
+        round(forecast + safety_stock - closing_stock),
+    )
+    stock_to_reorder_ratio = (
+        closing_stock / reorder_point if reorder_point else math.inf
+    )
+    wastage_rate_percent = (
+        wastage_units / max(closing_stock + wastage_units, 1) * 100
+    )
 
-    elif stock_status == "Overstocked":
-        return "REDUCE_STOCK"
+    return pd.Series(
+        {
+            "Agent_Daily_Demand_Units": daily_demand,
+            "Agent_Lead_Time_Demand_Units": lead_time_demand,
+            "Agent_Projected_Stock_At_Arrival_Units": (
+                projected_stock_at_arrival
+            ),
+            "Agent_Days_Of_Stock_Cover": days_of_stock_cover,
+            "Agent_Stock_To_Reorder_Ratio": stock_to_reorder_ratio,
+            "Agent_Wastage_Rate_%": wastage_rate_percent,
+            "Agent_Recommended_Replenishment_Units": (
+                calculated_replenishment
+            ),
+        }
+    )
 
-    elif product_type == "Perishable" and row["Wastage_Units"] > 0:
-        return "MONITOR_WASTAGE"
 
-    elif replenishment == "Yes":
-        return "REORDER"
+agent_metrics = df.apply(calculate_inventory_metrics, axis=1)
+df = pd.concat([df, agent_metrics], axis=1)
 
+
+def generate_inventory_decision(row):
+    """Return an action, priority, and explanation from calculated metrics."""
+    projected_stock = row["Agent_Projected_Stock_At_Arrival_Units"]
+    safety_stock = row["Safety_Stock_Units"]
+    stock_ratio = row["Agent_Stock_To_Reorder_Ratio"]
+    is_perishable = row["Product_Type"] == "Perishable"
+    waste_risk = (
+        row["Agent_Wastage_Rate_%"] >= WASTAGE_RATE_ALERT_PERCENT
+        or row["Freshness_Rate_%"] < LOW_FRESHNESS_PERCENT
+        or row["Shelf_Life_Days"] <= SHORT_SHELF_LIFE_DAYS
+    )
+
+    if projected_stock <= 0 or stock_ratio <= URGENT_REORDER_RATIO:
+        action = "URGENT_REORDER"
+        priority = "High"
+        explanation = (
+            "Stock is expected to run out before the supplier lead time ends, "
+            "or is at or below 50% of the reorder point. Reorder immediately."
+        )
+    elif projected_stock <= safety_stock or stock_ratio <= 1:
+        action = "REORDER"
+        priority = "Medium"
+        explanation = (
+            "Projected stock at supplier arrival is at or below safety stock, "
+            "or current stock is at or below the reorder point. Plan replenishment."
+        )
+    elif stock_ratio >= OVERSTOCK_RATIO:
+        action = "REDUCE_STOCK"
+        priority = "Low"
+        explanation = (
+            "Current stock is at least twice the reorder point. Pause or reduce "
+            "incoming replenishment and consider transfer or promotion actions."
+        )
+    elif is_perishable and waste_risk:
+        action = "MONITOR_WASTAGE"
+        priority = "Medium"
+        explanation = (
+            "Perishable inventory has elevated wastage, low freshness, or short "
+            "remaining shelf life. Monitor usage and reduce avoidable spoilage."
+        )
     else:
-        return "NO_ACTION"
-
-
-def generate_priority(row):
-
-    if row["Stock_Status"] == "Critical":
-        return "High"
-
-    elif row["Stock_Status"] == "Low":
-        return "Medium"
-
-    elif row["Stock_Status"] == "Overstocked":
-        return "Medium"
-
-    elif row["Product_Type"] == "Perishable" and row["Wastage_Units"] > 0:
-        return "Medium"
-
-    else:
-        return "Low"
-
-
-def generate_explanation(row):
-
-    status = row["Stock_Status"]
-
-    if status == "Critical":
-        return (
-            "Stock is critically low compared with inventory requirements. "
-            "Immediate replenishment is recommended."
+        action = "NO_ACTION"
+        priority = "Low"
+        explanation = (
+            "Stock is expected to remain above safety stock through supplier lead "
+            "time, with no material overstock or perishability risk."
         )
 
-    elif status == "Low":
-        return (
-            "Stock is below the desired inventory level. "
-            "Replenishment should be planned."
-        )
-
-    elif status == "Overstocked":
-        return (
-            "Inventory is higher than the required level. "
-            "Reduce or delay replenishment to avoid excess stock."
-        )
-
-    elif (
-        row["Product_Type"] == "Perishable"
-        and row["Wastage_Units"] > 0
-    ):
-        return (
-            "Inventory is currently adequate, but wastage is present. "
-            "Monitor stock usage and freshness."
-        )
-
-    else:
-        return (
-            "Inventory level is currently healthy. "
-            "No immediate action is required."
-        )
+    return pd.Series(
+        {
+            "Agent_Action": action,
+            "Agent_Priority": priority,
+            "Agent_Explanation": explanation,
+        }
+    )
 
 
-df["Agent_Action"] = df.apply(
-    generate_inventory_action,
-    axis=1
-)
-
-df["Agent_Priority"] = df.apply(
-    generate_priority,
-    axis=1
-)
-
-df["Agent_Explanation"] = df.apply(
-    generate_explanation,
-    axis=1
-)
+agent_decisions = df.apply(generate_inventory_decision, axis=1)
+df = pd.concat([df, agent_decisions], axis=1)
 
 
 # --------------------------------------------------
@@ -191,6 +212,13 @@ output_columns = [
     "Stock_Status",
     "Replenishment_Required",
     "Recommended_Replenishment_Units",
+    "Agent_Recommended_Replenishment_Units",
+    "Agent_Daily_Demand_Units",
+    "Agent_Lead_Time_Demand_Units",
+    "Agent_Projected_Stock_At_Arrival_Units",
+    "Agent_Days_Of_Stock_Cover",
+    "Agent_Stock_To_Reorder_Ratio",
+    "Agent_Wastage_Rate_%",
     "Stock_Availability_%",
     "Inventory_Turnover_Ratio",
     "Wastage_Units",
@@ -200,6 +228,7 @@ output_columns = [
     "Agent_Priority",
     "Agent_Explanation",
 ]
+inventory_output = df[output_columns].copy()
 
 priority_order = pd.CategoricalDtype(
     categories=["High", "Medium", "Low"],
