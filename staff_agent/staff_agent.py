@@ -67,9 +67,8 @@ df = df.dropna(
 # -----------------------------------
 # MONTHLY OUTLET STAFF DATA
 # One record per outlet-month.
-# Repeated rows are deduplicated because
-# the dataset check found identical staff
-# values within each outlet-month.
+# Repeated monthly values are retained
+# once, rather than summed as duplicates.
 # -----------------------------------
 
 monthly_outlet_staff = (
@@ -89,7 +88,7 @@ monthly_outlet_staff = (
         Employees=("Employees", "mean"),
         Employee_Turnover=("Employee_Turnover_%", "mean"),
         Customer_Satisfaction=("Customer_Satisfaction_1_5", "mean"),
-        Complaints=("Complaints", "sum"),
+        Complaints=("Complaints", "first"),
     )
 )
 
@@ -99,7 +98,7 @@ monthly_outlet_staff = monthly_outlet_staff.sort_values(
 
 
 # -----------------------------------
-# EXISTING OUTLET-LEVEL STAFF ANALYSIS
+# OUTLET-LEVEL STAFF ANALYSIS
 # -----------------------------------
 
 staff_data = (
@@ -227,8 +226,8 @@ staff_data["Recommendation"] = staff_data.apply(
 
 # -----------------------------------
 # WORKFORCE TREND ANALYSIS
-# Compare each outlet's earliest and
-# latest available month in the dataset.
+# Compare earliest and latest available
+# months in the dataset.
 # -----------------------------------
 
 first_month = monthly_outlet_staff["Month"].min()
@@ -288,25 +287,41 @@ workforce_trends["Turnover_Change"] = (
     - workforce_trends["Turnover_First_Month"]
 )
 
+
+def get_employee_trend(value):
+    if pd.isna(value):
+        return "Insufficient data"
+
+    if value > 0:
+        return "Increased"
+
+    if value < 0:
+        return "Decreased"
+
+    return "No change"
+
+
 workforce_trends["Employee_Trend"] = workforce_trends[
     "Employee_Change"
-].apply(
-    lambda value:
-        "Increased" if value > 0
-        else "Decreased" if value < 0
-        else "No change" if pd.notna(value)
-        else "Insufficient data"
-)
+].apply(get_employee_trend)
 
-workforce_trends["Trend_Insight"] = workforce_trends.apply(
-    lambda row: (
+
+def generate_trend_insight(row):
+    if pd.isna(row["Employee_Change"]):
+        return "Insufficient data to compare employee count."
+
+    change = abs(row["Employee_Change"])
+
+    return (
         f"Employee count {row['Employee_Trend'].lower()} "
-        f"by {abs(row['Employee_Change']):.2f} between "
+        f"by {change:.2f} between "
         f"{first_month.strftime('%Y-%m')} and "
         f"{latest_month.strftime('%Y-%m')}."
-        if pd.notna(row["Employee_Change"])
-        else "Insufficient data to compare employee count."
-    ),
+    )
+
+
+workforce_trends["Trend_Insight"] = workforce_trends.apply(
+    generate_trend_insight,
     axis=1
 )
 
@@ -360,10 +375,15 @@ print("\nStaff Status Distribution:")
 print(staff_data["Staff_Status"].value_counts())
 
 print("\nOutlet Workforce Trend Period:")
-print(f"{first_month.strftime('%Y-%m')} to {latest_month.strftime('%Y-%m')}")
+print(
+    f"{first_month.strftime('%Y-%m')} to "
+    f"{latest_month.strftime('%Y-%m')}"
+)
 
 print("\nMonthly Workforce Summary (latest 5 months):")
-print(monthly_workforce_summary.tail(5).to_string(index=False))
+print(
+    monthly_workforce_summary.tail(5).to_string(index=False)
+)
 
 print("\nTop 10 Staff Agent Results:")
 print(
@@ -384,3 +404,4 @@ print("\nOutput files saved:")
 print(staff_output_path)
 print(trend_output_path)
 print(monthly_output_path)
+
