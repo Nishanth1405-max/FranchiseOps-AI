@@ -1,4 +1,4 @@
-"""FranchiseOps AI - Milestone 1 and 2 Outlet Intelligence Dashboard."""
+"""FranchiseOps AI - Milestone 1, 2, and 3 Outlet Intelligence Dashboard."""
 
 from __future__ import annotations
 
@@ -18,16 +18,26 @@ from src.analytics import (
     rerank_snapshot,
     score_component_frame,
 )
-from src.data_loader import DataValidationError, load_outlet_data
+from src.data_loader import (
+    DataValidationError,
+    load_outlet_data,
+    resolve_outlet_data_path,
+)
 from src.milestone2_loader import Milestone2DataError, load_milestone2_outputs
+from src.milestone3.loader import Milestone3OutputError, load_milestone3_outputs
 
 
 ROOT = Path(__file__).resolve().parent
-DATA_PATH = ROOT / "data" / "raw" / "franchiseops_filtered_outlet_data.csv"
 STAFF_AGENT_PATH = ROOT / "staff_agent" / "staff_agent_output.csv"
 MARKETING_AGENT_PATH = ROOT / "data" / "processed" / "marketing_agent_output.csv"
 INVENTORY_AGENT_PATH = ROOT / "data" / "processed" / "inventory_agent_output.csv"
 FORECAST_PATH = ROOT / "data" / "processed" / "demand_forecast_output.csv"
+M3_WORKFORCE_PATH = ROOT / "data" / "processed" / "m3_staff_workforce_output.csv"
+M3_WORKFORCE_MONTHLY_PATH = ROOT / "data" / "processed" / "m3_staff_monthly_summary.csv"
+M3_MARKETING_PATH = ROOT / "data" / "processed" / "m3_marketing_effectiveness_output.csv"
+M3_MARKETING_MONTHLY_PATH = ROOT / "data" / "processed" / "m3_marketing_monthly_summary.csv"
+M3_OPERATIONS_PATH = ROOT / "data" / "processed" / "m3_operational_insights.csv"
+M3_QUALITY_PATH = ROOT / "data" / "processed" / "m3_data_quality.csv"
 
 st.set_page_config(
     page_title="FranchiseOps AI | Outlet Intelligence",
@@ -50,6 +60,35 @@ CSS = """
     [data-testid="stHeader"] { background: transparent; }
     [data-testid="stSidebar"] { background: #091522; border-right: 1px solid var(--line); }
     [data-testid="stSidebar"] * { color: var(--text); }
+    div[data-baseweb="input"],
+    div[data-baseweb="select"] > div {
+        background-color: #10243A !important;
+        border-color: rgba(159,176,197,.32) !important;
+    }
+    div[data-baseweb="input"] input,
+    div[data-baseweb="select"] input,
+    div[data-baseweb="select"] p,
+    div[data-baseweb="select"] span {
+        color: var(--text) !important;
+        -webkit-text-fill-color: var(--text) !important;
+    }
+    div[data-baseweb="input"] input::placeholder,
+    div[data-baseweb="select"] input::placeholder {
+        color: var(--muted) !important;
+        -webkit-text-fill-color: var(--muted) !important;
+        opacity: 1 !important;
+    }
+    div[data-baseweb="select"] svg { fill: var(--muted) !important; }
+    div[data-baseweb="tag"] {
+        background-color: #155E75 !important;
+        border-color: rgba(45,212,191,.35) !important;
+    }
+    div[data-baseweb="tag"] span,
+    div[data-baseweb="tag"] svg {
+        color: var(--text) !important;
+        fill: var(--text) !important;
+        -webkit-text-fill-color: var(--text) !important;
+    }
     .block-container { max-width: 1500px; padding-top: 1.4rem; padding-bottom: 3rem; }
     h1, h2, h3 { color: var(--text) !important; letter-spacing: -.02em; }
     p, label, .stMarkdown { color: var(--text); }
@@ -84,7 +123,23 @@ CSS = """
     div[data-testid="stDataFrame"] { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
     div[data-testid="stTabs"] button { color: var(--muted); font-weight: 700; }
     div[data-testid="stTabs"] button[aria-selected="true"] { color: var(--accent); }
-    .stDownloadButton > button { width: 100%; border-color: rgba(45,212,191,.45); color: var(--text); }
+    .stDownloadButton > button {
+        width: 100%;
+        background: #10243A !important;
+        border-color: rgba(45,212,191,.45) !important;
+        color: var(--text) !important;
+    }
+    .stDownloadButton > button p { color: var(--text) !important; }
+    .stDownloadButton > button:hover {
+        background: #16314C !important;
+        border-color: var(--accent) !important;
+        color: #FFFFFF !important;
+    }
+    .stDownloadButton > button:disabled {
+        background: #0D1B2A !important;
+        color: var(--muted) !important;
+        opacity: .8;
+    }
     hr { border-color: var(--line) !important; }
     @media (max-width: 800px) { .block-container { padding: 1rem; } .kpi-card { min-height: 108px; } }
 </style>
@@ -110,6 +165,25 @@ def get_milestone2_data(
         marketing_path,
         inventory_path,
         forecast_path,
+    )
+
+
+@st.cache_data(show_spinner=False)
+def get_milestone3_data(
+    workforce_path: str,
+    workforce_monthly_path: str,
+    marketing_path: str,
+    marketing_monthly_path: str,
+    operations_path: str,
+    quality_path: str,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    return load_milestone3_outputs(
+        workforce_path,
+        workforce_monthly_path,
+        marketing_path,
+        marketing_monthly_path,
+        operations_path,
+        quality_path,
     )
 
 
@@ -198,7 +272,8 @@ def inventory_recommendation(row: pd.Series) -> str:
 
 
 try:
-    data, quality = get_data(str(DATA_PATH))
+    data_path = resolve_outlet_data_path(ROOT)
+    data, quality = get_data(str(data_path))
 except (FileNotFoundError, DataValidationError) as exc:
     st.error(f"The dashboard could not load a valid dataset: {exc}")
     st.stop()
@@ -229,9 +304,46 @@ except (FileNotFoundError, Milestone2DataError) as exc:
         "shared_outlets": 0,
     }
 
+milestone3_error = None
+try:
+    (
+        workforce_data,
+        workforce_monthly,
+        marketing_effectiveness_data,
+        marketing_monthly,
+        operations_data,
+        milestone3_quality,
+    ) = get_milestone3_data(
+        str(M3_WORKFORCE_PATH),
+        str(M3_WORKFORCE_MONTHLY_PATH),
+        str(M3_MARKETING_PATH),
+        str(M3_MARKETING_MONTHLY_PATH),
+        str(M3_OPERATIONS_PATH),
+        str(M3_QUALITY_PATH),
+    )
+except (FileNotFoundError, Milestone3OutputError) as exc:
+    milestone3_error = str(exc)
+    workforce_data = pd.DataFrame()
+    workforce_monthly = pd.DataFrame()
+    marketing_effectiveness_data = pd.DataFrame()
+    marketing_monthly = pd.DataFrame()
+    operations_data = pd.DataFrame()
+    milestone3_quality = {
+        "status": "Unavailable",
+        "source_rows": 0,
+        "prepared_rows": 0,
+        "duplicate_keys_removed": 0,
+        "outlets": 0,
+        "months": 0,
+        "campaigns": 0,
+        "milestone3_missing_cells": 0,
+        "engagement_max_error_pct": 0,
+        "shared_outlets": 0,
+    }
+
 
 st.sidebar.markdown("## FranchiseOps AI")
-st.sidebar.caption("Milestones 1 & 2 · Outlet Intelligence")
+st.sidebar.caption("Milestones 1, 2 & 3 · Outlet Intelligence")
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Analysis filters")
 
@@ -283,12 +395,15 @@ st.sidebar.caption(f"{quality['rows']} validated records · {quality['outlets']}
 st.sidebar.caption(
     f"Milestone 2 · {milestone2_quality['shared_outlets']} shared outlets · All four modules active"
 )
+st.sidebar.caption(
+    f"Milestone 3 · {milestone3_quality['shared_outlets']} shared outlets · Workforce, campaigns, and operations active"
+)
 
 month_label = pd.Timestamp(snapshot_month).strftime("%B %Y")
 st.title("Outlet Performance Intelligence")
 st.markdown(
-    f"""<div class="hero"><div class="hero-kicker">FranchiseOps AI · Milestones 1 & 2</div>
-    <p class="hero-copy">Monitor revenue, compare franchise locations, measure outlet health, and convert performance, staff, marketing, inventory, and demand signals into prioritized actions. Current peer snapshot: <b>{month_label}</b>.</p></div>""",
+    f"""<div class="hero"><div class="hero-kicker">FranchiseOps AI · Milestones 1, 2 & 3</div>
+    <p class="hero-copy">Monitor revenue, compare franchise locations, measure outlet health, and convert performance, workforce, campaign, inventory, and demand signals into prioritized operational actions. Current peer snapshot: <b>{month_label}</b>.</p></div>""",
     unsafe_allow_html=True,
 )
 
@@ -439,11 +554,23 @@ with outlet_tab:
 with agent_tab:
     st.markdown("### Multi-agent decision centre")
     st.markdown(
-        "<p class='section-note'>Milestone 1 outlet intelligence and Milestone 2 staff, marketing, inventory, and demand analysis in one consistent dashboard. All recommendations are deterministic and explainable.</p>",
+        "<p class='section-note'>Milestone 1 outlet intelligence, Milestone 2 agent outputs, and Milestone 3 workforce, campaign, and cross-functional operations analysis in one consistent dashboard. All recommendations are deterministic and explainable.</p>",
         unsafe_allow_html=True,
     )
-    outlet_agent_tab, staff_agent_tab, marketing_agent_tab, inventory_agent_tab = st.tabs(
-        ["Outlet Performance", "Staff Agent", "Marketing Agent", "Inventory & Forecasting"]
+    (
+        outlet_agent_tab,
+        staff_agent_tab,
+        marketing_agent_tab,
+        inventory_agent_tab,
+        operations_agent_tab,
+    ) = st.tabs(
+        [
+            "Outlet Performance",
+            "Staff Agent",
+            "Marketing Agent",
+            "Inventory & Forecasting",
+            "Operational Insights",
+        ]
     )
 
     with outlet_agent_tab:
@@ -567,6 +694,195 @@ with agent_tab:
                 mime="text/csv",
             )
 
+        st.markdown("---")
+        st.markdown("#### Milestone 3 workforce intelligence")
+        st.markdown(
+            "<p class='section-note'>Staff performance, productivity, attendance, and workforce scheduling from the prepared Milestone 3 campaign-and-operations dataset.</p>",
+            unsafe_allow_html=True,
+        )
+        if milestone3_error:
+            st.error(f"Milestone 3 workforce data is unavailable: {milestone3_error}")
+        else:
+            workforce_ids = workforce_data["Outlet_ID"].tolist()
+            workforce_names = workforce_data.set_index("Outlet_ID")["Outlet_Name"].to_dict()
+            default_workforce = workforce_ids.index("OUT0706") if "OUT0706" in workforce_ids else 0
+            workforce_outlet_id = st.selectbox(
+                "Select Milestone 3 outlet",
+                workforce_ids,
+                index=default_workforce,
+                format_func=lambda value: f"{value} · {workforce_names[value]}",
+                key="workforce_outlet",
+            )
+            workforce_row = workforce_data.set_index("Outlet_ID").loc[workforce_outlet_id]
+            workforce_tone = (
+                "bad"
+                if workforce_row["Workforce_Alert_Level"] == "High"
+                else "warn"
+                if workforce_row["Workforce_Alert_Level"] == "Medium"
+                else "good"
+            )
+
+            w1, w2, w3, w4, w5 = st.columns(5)
+            with w1:
+                kpi_card(
+                    "Workforce score",
+                    f"{workforce_row['Average_Staff_Performance_Score']:.1f}/100",
+                    str(workforce_row["Workforce_Category"]),
+                    workforce_tone,
+                )
+            with w2:
+                kpi_card(
+                    "Attendance",
+                    f"{workforce_row['Average_Attendance_Rate']:.1f}%",
+                    "Average across 40 months",
+                )
+            with w3:
+                kpi_card(
+                    "Productivity",
+                    f"{workforce_row['Average_Productivity_Score']:.1f}/100",
+                    "Staff productivity score",
+                    workforce_tone,
+                )
+            with w4:
+                kpi_card(
+                    "Latest schedule",
+                    str(workforce_row["Latest_Scheduling_Status"]),
+                    f"{workforce_row['Workforce_Alert_Level']} workforce alert",
+                    workforce_tone,
+                )
+            with w5:
+                kpi_card(
+                    "Needs improvement",
+                    f"{int(workforce_row['Needs_Improvement_Months'])} months",
+                    f"of {int(workforce_row['Records'])} analyzed",
+                    workforce_tone,
+                )
+
+            show_milestone2_agent_card(
+                f"{workforce_outlet_id} · Workforce intelligence",
+                (
+                    f"{workforce_row['Workforce_Category']} · "
+                    f"{workforce_row['Workforce_Alert_Level']} alert · "
+                    f"latest schedule {workforce_row['Latest_Scheduling_Status']}"
+                ),
+                str(workforce_row["Workforce_Insight"]),
+                str(workforce_row["Workforce_Recommendation"]),
+                str(workforce_row["Workforce_Alert_Level"]),
+            )
+
+            workforce_left, workforce_right = st.columns([1.65, 1])
+            workforce_trend = go.Figure()
+            workforce_trend.add_trace(
+                go.Scatter(
+                    x=workforce_monthly["Month"],
+                    y=workforce_monthly["Average_Staff_Performance_Score"],
+                    name="Staff performance",
+                    mode="lines+markers",
+                    line=dict(color="#2DD4BF", width=3),
+                )
+            )
+            workforce_trend.add_trace(
+                go.Scatter(
+                    x=workforce_monthly["Month"],
+                    y=workforce_monthly["Average_Attendance_Rate"],
+                    name="Attendance",
+                    mode="lines+markers",
+                    line=dict(color="#60A5FA", width=2),
+                )
+            )
+            workforce_trend.update_layout(
+                title="Network workforce performance and attendance",
+                yaxis_title="Percent / score",
+                hovermode="x unified",
+            )
+            with workforce_left:
+                st.plotly_chart(
+                    style_figure(workforce_trend),
+                    width="stretch",
+                    config={"displayModeBar": False, "responsive": True},
+                )
+
+            schedule_order = ["Understaffed", "Balanced", "Overstaffed"]
+            schedule_counts = workforce_data["Latest_Scheduling_Status"].value_counts().reindex(
+                schedule_order, fill_value=0
+            )
+            schedule_donut = go.Figure(
+                go.Pie(
+                    labels=schedule_counts.index,
+                    values=schedule_counts.values,
+                    hole=.64,
+                    marker_colors=["#FB7185", "#20D9A2", "#FBBF24"],
+                    textinfo="label+value",
+                    sort=False,
+                )
+            )
+            schedule_donut.update_layout(
+                title="Latest workforce schedule mix",
+                showlegend=False,
+                annotations=[
+                    dict(
+                        text=f"{len(workforce_data)}<br>outlets",
+                        x=.5,
+                        y=.5,
+                        showarrow=False,
+                        font_size=17,
+                    )
+                ],
+            )
+            with workforce_right:
+                st.plotly_chart(
+                    style_figure(schedule_donut),
+                    width="stretch",
+                    config={"displayModeBar": False, "responsive": True},
+                )
+
+            workforce_queue = workforce_data.assign(
+                _priority=workforce_data["Workforce_Alert_Level"].map(
+                    {"High": 0, "Medium": 1, "Low": 2}
+                )
+            ).sort_values(
+                ["_priority", "Average_Staff_Performance_Score", "Average_Attendance_Rate"]
+            )
+            st.markdown("#### Workforce action queue")
+            st.dataframe(
+                workforce_queue[
+                    [
+                        "Outlet_ID",
+                        "Outlet_Name",
+                        "Average_Staff_Performance_Score",
+                        "Average_Attendance_Rate",
+                        "Latest_Scheduling_Status",
+                        "Workforce_Category",
+                        "Workforce_Alert_Level",
+                    ]
+                ].head(20),
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Average_Staff_Performance_Score": st.column_config.NumberColumn(
+                        "Workforce score", format="%.1f"
+                    ),
+                    "Average_Attendance_Rate": st.column_config.NumberColumn(
+                        "Attendance", format="%.1f%%"
+                    ),
+                },
+            )
+            workforce_download, workforce_monthly_download = st.columns(2)
+            with workforce_download:
+                st.download_button(
+                    "Download Workforce output (CSV)",
+                    workforce_data.to_csv(index=False, date_format="%Y-%m").encode("utf-8"),
+                    file_name="m3_staff_workforce_output.csv",
+                    mime="text/csv",
+                )
+            with workforce_monthly_download:
+                st.download_button(
+                    "Download monthly Workforce summary (CSV)",
+                    workforce_monthly.to_csv(index=False, date_format="%Y-%m").encode("utf-8"),
+                    file_name="m3_staff_monthly_summary.csv",
+                    mime="text/csv",
+                )
+
     with marketing_agent_tab:
         st.markdown("#### Marketing Agent")
         st.markdown(
@@ -660,6 +976,206 @@ with agent_tab:
                 file_name="marketing_agent_output.csv",
                 mime="text/csv",
             )
+
+        st.markdown("---")
+        st.markdown("#### Milestone 3 marketing effectiveness")
+        st.markdown(
+            "<p class='section-note'>Effectiveness score plus campaign reach, conversions, engagement, ROI, and campaign mix.</p>",
+            unsafe_allow_html=True,
+        )
+        if milestone3_error:
+            st.error(f"Milestone 3 marketing data is unavailable: {milestone3_error}")
+        else:
+            effectiveness_ids = marketing_effectiveness_data["Outlet_ID"].tolist()
+            default_effectiveness = (
+                effectiveness_ids.index("OUT0706")
+                if "OUT0706" in effectiveness_ids
+                else 0
+            )
+            effectiveness_outlet_id = st.selectbox(
+                "Select Milestone 3 outlet",
+                effectiveness_ids,
+                index=default_effectiveness,
+                key="marketing_effectiveness_outlet",
+            )
+            effectiveness_row = marketing_effectiveness_data.set_index("Outlet_ID").loc[
+                effectiveness_outlet_id
+            ]
+            effectiveness_tone = (
+                "bad"
+                if effectiveness_row["Effectiveness_Category"] == "Needs Improvement"
+                else "good"
+                if effectiveness_row["Effectiveness_Category"] == "High Performing"
+                else "warn"
+            )
+
+            e1, e2, e3, e4, e5 = st.columns(5)
+            with e1:
+                kpi_card(
+                    "Effectiveness score",
+                    f"{effectiveness_row['Marketing_Effectiveness_Score']:.1f}/100",
+                    str(effectiveness_row["Effectiveness_Category"]),
+                    effectiveness_tone,
+                )
+            with e2:
+                kpi_card(
+                    "Campaign ROI",
+                    f"{effectiveness_row['Average_Campaign_ROI']:.2f}",
+                    str(effectiveness_row["Campaign_Performance_Category"]),
+                    effectiveness_tone,
+                )
+            with e3:
+                kpi_card(
+                    "Engagement",
+                    f"{effectiveness_row['Customer_Engagement_Rate']:.2f}%",
+                    "Conversions divided by reach",
+                )
+            with e4:
+                kpi_card(
+                    "Campaign reach",
+                    f"{int(effectiveness_row['Total_Marketing_Reach']):,}",
+                    f"{int(effectiveness_row['Total_Marketing_Conversions']):,} conversions",
+                )
+            with e5:
+                kpi_card(
+                    "Primary campaign",
+                    str(effectiveness_row["Primary_Campaign_Type"]),
+                    f"{int(effectiveness_row['Campaign_Records'])} campaigns",
+                )
+
+            show_milestone2_agent_card(
+                f"{effectiveness_outlet_id} · Marketing effectiveness",
+                (
+                    f"{effectiveness_row['Effectiveness_Category']} · "
+                    f"{effectiveness_row['Campaign_Performance_Category']} campaign ROI"
+                ),
+                str(effectiveness_row["Marketing_Effectiveness_Insight"]),
+                str(effectiveness_row["Marketing_Effectiveness_Recommendation"]),
+                str(effectiveness_row["Alert_Level"]),
+            )
+
+            effectiveness_left, effectiveness_right = st.columns([1.65, 1])
+            effectiveness_trend = go.Figure()
+            effectiveness_trend.add_trace(
+                go.Scatter(
+                    x=marketing_monthly["Month"],
+                    y=marketing_monthly["Average_Campaign_ROI"],
+                    name="Campaign ROI",
+                    mode="lines+markers",
+                    line=dict(color="#2DD4BF", width=3),
+                )
+            )
+            effectiveness_trend.add_trace(
+                go.Scatter(
+                    x=marketing_monthly["Month"],
+                    y=marketing_monthly["Customer_Engagement_Rate"],
+                    name="Engagement rate",
+                    mode="lines+markers",
+                    yaxis="y2",
+                    line=dict(color="#60A5FA", width=2),
+                )
+            )
+            effectiveness_trend.update_layout(
+                title="Network campaign ROI and engagement",
+                yaxis_title="Average campaign ROI",
+                yaxis2=dict(
+                    title="Engagement (%)",
+                    overlaying="y",
+                    side="right",
+                    gridcolor="rgba(0,0,0,0)",
+                ),
+                hovermode="x unified",
+            )
+            with effectiveness_left:
+                st.plotly_chart(
+                    style_figure(effectiveness_trend),
+                    width="stretch",
+                    config={"displayModeBar": False, "responsive": True},
+                )
+
+            campaign_order = ["Needs Improvement", "Moderate", "High Performing"]
+            campaign_counts = marketing_effectiveness_data[
+                "Campaign_Performance_Category"
+            ].value_counts().reindex(campaign_order, fill_value=0)
+            campaign_donut = go.Figure(
+                go.Pie(
+                    labels=campaign_counts.index,
+                    values=campaign_counts.values,
+                    hole=.64,
+                    marker_colors=["#FB7185", "#FBBF24", "#20D9A2"],
+                    textinfo="label+value",
+                    sort=False,
+                )
+            )
+            campaign_donut.update_layout(
+                title="Campaign effectiveness mix",
+                showlegend=False,
+                annotations=[
+                    dict(
+                        text=f"{len(marketing_effectiveness_data)}<br>outlets",
+                        x=.5,
+                        y=.5,
+                        showarrow=False,
+                        font_size=17,
+                    )
+                ],
+            )
+            with effectiveness_right:
+                st.plotly_chart(
+                    style_figure(campaign_donut),
+                    width="stretch",
+                    config={"displayModeBar": False, "responsive": True},
+                )
+
+            effectiveness_queue = marketing_effectiveness_data.assign(
+                _priority=marketing_effectiveness_data["Alert_Level"].map(
+                    {"High": 0, "Medium": 1, "Low": 2}
+                )
+            ).sort_values(
+                ["_priority", "Marketing_Effectiveness_Score", "Average_Campaign_ROI"]
+            )
+            st.markdown("#### Marketing effectiveness action queue")
+            st.dataframe(
+                effectiveness_queue[
+                    [
+                        "Outlet_ID",
+                        "Marketing_Effectiveness_Score",
+                        "Average_Campaign_ROI",
+                        "Customer_Engagement_Rate",
+                        "Primary_Campaign_Type",
+                        "Campaign_Performance_Category",
+                        "Alert_Level",
+                    ]
+                ].head(20),
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Marketing_Effectiveness_Score": st.column_config.NumberColumn(
+                        "Effectiveness", format="%.1f"
+                    ),
+                    "Average_Campaign_ROI": st.column_config.NumberColumn(
+                        "Campaign ROI", format="%.2f"
+                    ),
+                    "Customer_Engagement_Rate": st.column_config.NumberColumn(
+                        "Engagement", format="%.2f%%"
+                    ),
+                },
+            )
+            effectiveness_download, marketing_monthly_download = st.columns(2)
+            with effectiveness_download:
+                st.download_button(
+                    "Download Marketing Effectiveness output (CSV)",
+                    marketing_effectiveness_data.to_csv(index=False).encode("utf-8"),
+                    file_name="m3_marketing_effectiveness_output.csv",
+                    mime="text/csv",
+                )
+            with marketing_monthly_download:
+                st.download_button(
+                    "Download monthly campaign summary (CSV)",
+                    marketing_monthly.to_csv(index=False, date_format="%Y-%m").encode("utf-8"),
+                    file_name="m3_marketing_monthly_summary.csv",
+                    mime="text/csv",
+                )
 
     with inventory_agent_tab:
         st.markdown("#### Inventory Agent and Forecasting")
@@ -908,6 +1424,187 @@ with agent_tab:
                     mime="text/csv",
                 )
 
+    with operations_agent_tab:
+        st.markdown("#### Milestone 3 Operational Insights")
+        st.markdown(
+            "<p class='section-note'>A single cross-functional action queue combining workforce, marketing, and latest inventory health for all outlets.</p>",
+            unsafe_allow_html=True,
+        )
+        if milestone3_error:
+            st.error(f"Operational Insights data is unavailable: {milestone3_error}")
+        else:
+            operations_ids = operations_data["Outlet_ID"].tolist()
+            operations_names = operations_data.set_index("Outlet_ID")["Outlet_Name"].to_dict()
+            default_operations = operations_ids.index("OUT0706") if "OUT0706" in operations_ids else 0
+            operations_outlet_id = st.selectbox(
+                "Select Milestone 3 outlet",
+                operations_ids,
+                index=default_operations,
+                format_func=lambda value: f"{value} · {operations_names[value]}",
+                key="operational_insights_outlet",
+            )
+            operations_row = operations_data.set_index("Outlet_ID").loc[operations_outlet_id]
+            operations_tone = (
+                "bad"
+                if operations_row["Operational_Priority"] == "High"
+                else "warn"
+                if operations_row["Operational_Priority"] == "Medium"
+                else "good"
+            )
+
+            o1, o2, o3, o4, o5 = st.columns(5)
+            with o1:
+                kpi_card(
+                    "Operational health",
+                    f"{operations_row['Operational_Health_Score']:.1f}/100",
+                    f"{operations_row['Operational_Priority']} priority",
+                    operations_tone,
+                )
+            with o2:
+                kpi_card(
+                    "Staff score",
+                    f"{operations_row['Staff_Score']:.1f}/100",
+                    str(operations_row["Latest_Scheduling_Status"]),
+                )
+            with o3:
+                kpi_card(
+                    "Marketing score",
+                    f"{operations_row['Marketing_Score']:.1f}/100",
+                    f"ROI {operations_row['Average_Campaign_ROI']:.2f}",
+                )
+            with o4:
+                kpi_card(
+                    "Inventory score",
+                    f"{operations_row['Inventory_Score']:.1f}/100",
+                    str(operations_row["Inventory_Status"]),
+                    operations_tone,
+                )
+            with o5:
+                kpi_card(
+                    "Primary focus",
+                    str(operations_row["Primary_Focus_Area"]),
+                    f"{int(operations_row['Cross_Functional_Risks'])} components below 70",
+                    operations_tone,
+                )
+
+            show_milestone2_agent_card(
+                f"{operations_outlet_id} · Cross-functional operations",
+                (
+                    f"{operations_row['Operational_Priority']} priority · "
+                    f"focus: {operations_row['Primary_Focus_Area']}"
+                ),
+                str(operations_row["Operational_Insight"]),
+                str(operations_row["Recommended_Action"]),
+                str(operations_row["Operational_Priority"]),
+            )
+
+            operations_left, operations_right = st.columns([1.65, 1])
+            component_scores = pd.DataFrame(
+                {
+                    "Component": ["Staff workforce", "Marketing", "Inventory"],
+                    "Score": [
+                        operations_row["Staff_Score"],
+                        operations_row["Marketing_Score"],
+                        operations_row["Inventory_Score"],
+                    ],
+                }
+            )
+            component_chart = px.bar(
+                component_scores,
+                x="Component",
+                y="Score",
+                color="Component",
+                color_discrete_map={
+                    "Staff workforce": "#60A5FA",
+                    "Marketing": "#A78BFA",
+                    "Inventory": "#2DD4BF",
+                },
+                text="Score",
+                title=f"{operations_outlet_id} operational components",
+            )
+            component_chart.update_traces(texttemplate="%{text:.1f}", textposition="outside")
+            component_chart.update_yaxes(range=[0, 105])
+            component_chart.add_hline(y=70, line_dash="dash", line_color="#64748B")
+            with operations_left:
+                st.plotly_chart(
+                    style_figure(component_chart),
+                    width="stretch",
+                    config={"displayModeBar": False, "responsive": True},
+                )
+
+            priority_order = ["High", "Medium", "Low"]
+            operations_counts = operations_data["Operational_Priority"].value_counts().reindex(
+                priority_order, fill_value=0
+            )
+            operations_donut = go.Figure(
+                go.Pie(
+                    labels=operations_counts.index,
+                    values=operations_counts.values,
+                    hole=.64,
+                    marker_colors=["#FB7185", "#FBBF24", "#20D9A2"],
+                    textinfo="label+value",
+                    sort=False,
+                )
+            )
+            operations_donut.update_layout(
+                title="Operational priority mix",
+                showlegend=False,
+                annotations=[
+                    dict(
+                        text=f"{len(operations_data)}<br>outlets",
+                        x=.5,
+                        y=.5,
+                        showarrow=False,
+                        font_size=17,
+                    )
+                ],
+            )
+            with operations_right:
+                st.plotly_chart(
+                    style_figure(operations_donut),
+                    width="stretch",
+                    config={"displayModeBar": False, "responsive": True},
+                )
+
+            operations_queue = operations_data.assign(
+                _priority=operations_data["Operational_Priority"].map(
+                    {"High": 0, "Medium": 1, "Low": 2}
+                )
+            ).sort_values(
+                ["_priority", "Operational_Health_Score", "Cross_Functional_Risks"],
+                ascending=[True, True, False],
+            )
+            st.markdown("#### Prioritized operational action queue")
+            st.dataframe(
+                operations_queue[
+                    [
+                        "Outlet_ID",
+                        "Outlet_Name",
+                        "Operational_Health_Score",
+                        "Cross_Functional_Risks",
+                        "Primary_Focus_Area",
+                        "Inventory_Action",
+                        "Operational_Priority",
+                    ]
+                ].head(25),
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Operational_Health_Score": st.column_config.NumberColumn(
+                        "Operational health", format="%.1f"
+                    ),
+                    "Cross_Functional_Risks": st.column_config.NumberColumn(
+                        "Risks below 70", format="%d"
+                    ),
+                },
+            )
+            st.download_button(
+                "Download Operational Insights output (CSV)",
+                operations_data.to_csv(index=False).encode("utf-8"),
+                file_name="m3_operational_insights.csv",
+                mime="text/csv",
+            )
+
 
 with method_tab:
     st.markdown("### Scoring methodology")
@@ -954,6 +1651,47 @@ with method_tab:
         kpi_card("Shared coverage", str(milestone2_quality["shared_outlets"]), "All four modules", "good" if not milestone2_error else "bad")
     st.caption(
         "Staff and Marketing use explainable quartile rules. Inventory uses stock-status, replenishment, and wastage rules. Forecasting uses the previous three months of demand after removing 120 supplied duplicate test rows."
+    )
+
+    st.markdown("#### Milestone 3 integration")
+    m31, m32, m33, m34, m35 = st.columns(5)
+    with m31:
+        kpi_card(
+            "Prepared records",
+            f"{int(milestone3_quality['prepared_rows']):,}",
+            f"from {int(milestone3_quality['source_rows']):,} source rows",
+            "good" if not milestone3_error else "bad",
+        )
+    with m32:
+        kpi_card(
+            "Shared outlets",
+            str(int(milestone3_quality["shared_outlets"])),
+            "Workforce + marketing + operations",
+            "good" if not milestone3_error else "bad",
+        )
+    with m33:
+        kpi_card(
+            "Campaigns",
+            f"{int(milestone3_quality['campaigns']):,}",
+            f"across {int(milestone3_quality['months'])} months",
+            "good" if not milestone3_error else "bad",
+        )
+    with m34:
+        kpi_card(
+            "Duplicates removed",
+            str(int(milestone3_quality["duplicate_keys_removed"])),
+            "Outlet + SKU + month keys",
+            "good" if not milestone3_error else "bad",
+        )
+    with m35:
+        kpi_card(
+            "Missing M3 cells",
+            str(int(milestone3_quality["milestone3_missing_cells"])),
+            f"Engagement error ≤ {float(milestone3_quality['engagement_max_error_pct']):.3f}%",
+            "good" if not milestone3_error else "bad",
+        )
+    st.caption(
+        "Marketing effectiveness uses revenue per marketing rupee (40%), conversion (35%), and orders (25%). Operational health combines staff (35%), marketing (35%), and inventory (30%), then prioritizes the weakest component and any urgent inventory action."
     )
 
     st.markdown("#### Data quality")
