@@ -775,17 +775,24 @@ def prepare_generic_agent(df, agent_name):
         ],
     )
 
-    # --------------------------------------------------------
-    # No usable risk information
+      # --------------------------------------------------------
+    # Staff-specific status handling
     # --------------------------------------------------------
 
-    if priority_column is None and risk_score_column is None:
+    if agent_name.lower() == "staff" and "Staff_Status" in df.columns:
 
-        print(
-            f"[WARNING] {agent_name.capitalize()} output has "
-            f"no recognized risk/priority column. "
-            f"Using neutral health."
+        status = (
+            df["Staff_Status"]
+            .astype("string")
+            .str.strip()
+            .str.title()
         )
+
+        health_map = {
+            "Stable": 85,
+            "Needs Attention": 60,
+            "Critical": 25,
+        }
 
         result = (
             df[["Outlet_ID"]]
@@ -793,11 +800,17 @@ def prepare_generic_agent(df, agent_name):
             .copy()
         )
 
-        result[f"{agent_name.capitalize()}_Health"] = 50
-        result[f"{agent_name.capitalize()}_Risk"] = False
+        result[f"{agent_name.capitalize()}_Health"] = (
+            status.map(health_map)
+            .fillna(50)
+            .astype(float)
+        )
+
+        result[f"{agent_name.capitalize()}_Risk"] = (
+            status.eq("Critical")
+        )
 
         return result
-
     # --------------------------------------------------------
     # Risk score
     # --------------------------------------------------------
