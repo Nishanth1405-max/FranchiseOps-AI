@@ -36,9 +36,29 @@ NUMERIC_COLUMNS = [
     "on_time_service_pct",
 ]
 
+OUTLET_DATA_CANDIDATES = (
+    Path("data/raw/franchiseops_filtered_outlet_data.csv"),
+    Path("data/processed/outlet_performance_intelligence.csv"),
+)
+
 
 class DataValidationError(ValueError):
     """Raised when source outlet data cannot be safely analyzed."""
+
+
+def resolve_outlet_data_path(project_root: str | Path) -> Path:
+    """Return the first packaged Milestone 1 dataset suitable for the dashboard."""
+    root = Path(project_root)
+    checked: list[Path] = []
+    for relative_path in OUTLET_DATA_CANDIDATES:
+        candidate = root / relative_path
+        checked.append(candidate)
+        if candidate.is_file():
+            return candidate
+    checked_paths = ", ".join(str(path) for path in checked)
+    raise FileNotFoundError(
+        f"No packaged outlet dataset was found. Checked: {checked_paths}"
+    )
 
 
 @dataclass(frozen=True)

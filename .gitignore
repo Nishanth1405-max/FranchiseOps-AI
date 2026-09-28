@@ -1,8 +1,7 @@
-data/*.xlsx
-data/raw/
 __pycache__/
-.pytest_cache/
+*.pyc
 .venv/
-*.py[cod]
-.DS_Store
-.streamlit/secrets.toml
+.pytest_cache/
+runtime/
+.env
+dashboard/static/data/
