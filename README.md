@@ -111,20 +111,4 @@ Lucide icons are embedded in the existing stylesheet, with their ISC license inc
 
 All twelve existing agents now have direct sidebar entries, including Data preparation, Outlet benchmarking, Performance score, Demand forecasting, Staff agent, Marketing agent, Operational insights and Cross-functional health. Existing business dashboards retain their links and styling; shared routes appear only once. Agent Workflow stays last in the sidebar.
 
-## Supplied agent replacement
 
-Canonical supplied modules: audit_agent/audit_agent.py, src/intelligence_engine/intelligence_engine.py and src/orchestrator/orchestrator.py. Their matching supplied tests are included. Original dashboard layout and styles remain unchanged. Menu labels remain unchanged. The compatibility wrapper refreshes the supplied audit/intelligence outputs and SQLite snapshots. The original 36-test result above describes the previous package, not the updated source-agent test run.
-
-Replacement verification: 51 tests passed. Dashboard API reads succeeded, the intelligence snapshot covers all 750 existing outlets, and all three supplied agent source files match the uploaded ZIPs byte for byte.
-
-## September 29 orchestration and data preparation integration
-
-The new supplied `src/orchestrator/orchestrator.py` replaces the previous version. It now executes inventory, marketing, audit and franchise intelligence, persists fresh inputs before intelligence, and uses project-relative paths. The dashboard wrapper publishes that same intelligence result without executing the engine twice. Existing dashboard HTML, CSS, JavaScript, navigation and all earlier agents are unchanged.
-
-`M4.ipynb` is preserved exactly as supplied for reference. Its Colab-specific source path requires the author's workbook; it is not the dashboard build entry point. A portable implementation of its cleaning and validation rules is included in `src/milestone4/notebook_preparation.py`, with original column lists in `notebook_rules.json`. It runs automatically during the Data validation stage and writes `data/processed/m4_clean_data.csv` and `m4_data_quality.csv`. Validation evidence appears in Data & Reports.
-
-**Missing input:** none of the three uploaded ZIPs contains `FranchiseOps_AI_4_Combined_Dataset.xlsx`, which the notebook expects (30,120 rows / 66 columns). Until it is provided, preparation explicitly validates the bundled M2/M3 combined workbook and reports warnings for unavailable M4 fields and reference dimensions. It does not invent audit fields or claim complete M4 source validation. Put the real workbook at `data/raw/FranchiseOps_AI_4_Combined_Dataset.xlsx` and rebuild to enable strict M4 required-column checks. Cleaning uses numeric median imputation, whitespace-normalized IDs, valid-median percentage correction and exact-row deduplication. The original source workbooks and existing agent inputs remain intact. The clean combined output is a separate validated dataset; agent-specific loading and scoring remain in their existing modules.
-
-Run `python scripts/build_milestone4.py`, then `python server.py`.
-
-Verification of this integration: full pipeline rebuild succeeded; 54 automated tests passed; nine dashboard/API routes returned HTTP 200; JavaScript syntax checks passed. All original frontend files and the supplied M4 notebook are byte-for-byte unchanged. Published results include 750 outlets, 41 passing validation checks and three explicit missing-M4-source/reference warnings. Live hosting and browser interaction testing were not performed.
