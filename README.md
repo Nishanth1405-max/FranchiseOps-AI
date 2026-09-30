@@ -1,118 +1,114 @@
-# FranchiseOps AI - Milestones 1 & 2
+# FranchiseOps AI — Milestone 4
 
-An interactive Outlet Performance Intelligence dashboard for multi-location franchise operations. It keeps the original Milestone 1 user interface and adds working Staff, Marketing, Inventory, and Demand Forecasting views for Milestone 2.
-
-## What is included
-
-- Milestone 1 sales and outlet performance dashboard
-- Outlet benchmarking, performance scoring, rankings, health categories, and alerts
-- Rule-based Outlet Performance Agent insights and recommendations
-- Staff Agent analysis for 750 outlets
-- Marketing Agent analysis for 750 outlets
-- Inventory Agent analysis for 30,000 unique outlet/SKU/month records
-- Three-month moving-average demand forecasting for 750 outlet/SKU combinations
-- Validated shared coverage across all 750 Milestone 2 outlet IDs
-- Existing dark dashboard theme, card design, charts, tables, filters, and downloads
-- Automated analytics, data-quality, agent, and Streamlit application tests
-
-## Project flow
-
-```text
-Milestone 1 data
-  → validation → benchmarking → performance score → outlet insights
-
-Milestone 2 data
-  → Staff Agent → staff status + insight + recommendation
-  → Marketing Agent → category + alert + insight + recommendation
-  → Inventory Agent → stock action + priority + replenishment
-  → Demand Forecasting → previous-three-month moving-average estimate
-
-All active outputs
-  → validated loaders → one Streamlit decision dashboard
-```
-
-## Active Milestone 2 agents
-
-| Agent | Owner | Main input | Main output |
-| --- | --- | --- | --- |
-| Staff Agent | Nandini | Employees, turnover, satisfaction, complaints | Staff status, insight, recommendation |
-| Marketing Agent | RajaShri | Marketing spend, revenue, orders, conversion | Efficiency, category, alert, insight, recommendation |
-| Inventory Agent | Nirma | Stock, reorder, freshness, and wastage data | Action, priority, explanation, replenishment quantity |
-| Inventory Forecasting | Nirma | Monthly SKU units sold | Three-month moving-average demand forecast |
-| Performance Dashboard | Narayanadas | Milestone 1 results plus all four Milestone 2 outputs | Interactive analysis and downloadable reports |
-
-The detailed implementation handoff is in `docs/MILESTONE2_DASHBOARD.md`.
-
-## Performance score
-
-| Component | Weight | Calculation |
-| --- | ---: | --- |
-| Revenue target achievement | 35% | `revenue / target_revenue`, capped at 100 |
-| Month-over-month growth | 15% | -20% maps to 0, 0% maps to 50, +20% maps to 100 |
-| Customer rating | 20% | Rating converted from a 5-point scale to 100 |
-| Complaint control | 15% | `100 - complaint_rate * 10`, bounded to 0-100 |
-| On-time service | 15% | Existing percentage, bounded to 0-100 |
-
-Health categories: Excellent (85-100), Good (70-84.9), Needs Improvement (55-69.9), and Critical (below 55).
+Executive dashboard with separate Python agents, Flask, vanilla JavaScript and SQLite.
 
 ## Run locally
 
+Use Python 3.12. From this folder:
+
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
-streamlit run app.py
+python scripts/build_milestone4.py
+python server.py
 ```
 
-The application opens at `http://localhost:8501`.
+Windows activation: `.venv\Scripts\activate`. Open http://localhost:8000.
+The downloadable package includes generated results and a database, so rebuilding is optional on first launch. Rebuild after changing source data. A source-only Git checkout must build first.
 
-## Regenerate agent outputs
+## Deploy on Render
+
+Upload these project files to your repository, with `app.py`, `requirements.txt` and `render.yaml` at the repository root. Create a Render Blueprint from that repository, or create a Python Web Service with:
+
+- Build command: `pip install -r requirements.txt && python scripts/build_milestone4.py`
+- Start command: `python -m gunicorn app:app --workers 1 --threads 4 --bind 0.0.0.0:$PORT --timeout 180`
+- Health check: `/api/status`
+- Python version: `.python-version` pins 3.12.10.
+
+The start command loads the actual Flask `app` object. `gunicorn` is included in requirements; do not use the placeholder `your_application.wsgi`.
+
+Render's default filesystem is ephemeral. Rebuilds reproduce analytical results, but follow-up notes and run history need a persistent disk to survive replacement/redeploys. For a disk mounted at `/var/data`, set `FRANCHISEOPS_DATA_DIR=/var/data` and run the initial build from the runtime shell, or use this start command on its first deployment:
 
 ```bash
-python staff_agent/staff_agent.py
-python src/marketing_agent/marketing_agent.py
-python inventory_agent/inventory_agent/inventory_agent.py
-python forecasting/demand_forecasting.py
+python scripts/build_milestone4.py && python -m gunicorn app:app --workers 1 --threads 4 --bind 0.0.0.0:$PORT --timeout 180
 ```
 
-These commands use `data/raw/FranchiseOps_AI_Milestone2_Inventory_Dataset.xlsx` and write the Staff, Marketing, Inventory, and Demand Forecast CSV outputs used by the dashboard.
+Persistent disks are mounted at runtime, not build time. One worker is required by the in-process orchestration lock. This is a single-instance project dashboard; authentication and multi-instance job scheduling are not included. Put an access layer in front of an internal deployment that contains private data.
 
-## Run tests
+## Dashboard pages
 
-```bash
-pytest -q
-```
+- **Executive dashboard:** revenue trend, combined score, priority outlets, audit workload and action queue.
+- **Data & database:** validation evidence, source coverage and SQLite schema.
+- **Audit agent:** rule, severity, threshold, measured value and recommended action. Open an outlet row to set an owner, note and follow-up status.
+- **Franchise intelligence:** explainable five-driver weighted ranking and lowest-driver focus.
+- **Agent orchestration:** persisted runs with each stage's status and errors. Run controls rebuild dependencies and refresh Milestone 4 results.
+- **Earlier milestones:** all 12 existing agent views, filterable tables, record details and CSV exports.
+
+Region/outlet filters apply to outlet dashboards. Data validation and run history are network-wide. M4 scores use the full period except latest-month financial/service audit checks and latest inventory signals; the underlying latest source month is April 2026. These are source-dataset results, not live operational feeds.
 
 ## Project structure
 
 ```text
-FranchiseOps-AI/
-├── app.py
-├── staff_agent/
-│   ├── staff_agent.py
-│   └── staff_agent_output.csv
-├── inventory_agent/inventory_agent/inventory_agent.py
-├── forecasting/demand_forecasting.py
-├── src/
-│   ├── analytics.py
-│   ├── data_loader.py
-│   ├── milestone2_loader.py
-│   └── marketing_agent/marketing_agent.py
-├── data/
-│   ├── raw/
-│   │   ├── franchiseops_filtered_outlet_data.csv
-│   │   └── FranchiseOps_AI_Milestone2_Inventory_Dataset.xlsx
-│   └── processed/
-│       ├── marketing_agent_output.csv
-│       ├── inventory_agent_output.csv
-│       └── demand_forecast_output.csv
-├── docs/
-│   ├── MILESTONE1_HANDOFF.md
-│   └── MILESTONE2_DASHBOARD.md
-├── tests/
-└── requirements.txt
+app.py                         Flask application and APIs
+server.py                      Local server entry point
+pipeline.py                    Original agent adapters and chunked exports
+render.yaml                    Render deployment configuration
+dashboard/static/              HTML, CSS, JavaScript and generated JSON
+src/milestone4/                 Final validation and data preparation
+audit_agent/                   Evidence-backed operational audit rules
+intelligence/                  Weighted franchise intelligence engine
+orchestration/                 Dependency ordering and persisted run steps
+database/schema.sql            Relational schema
+database/store.py              SQLite connection and snapshot access
+runtime/franchiseops.db         Generated database (ignored by Git)
+scripts/build_milestone4.py     Full build entry point
+tests/test_milestone4.py        M4 integration and validation checks
+benchmarking/                  Existing project module
+performance_score/             Existing project module
+staff_agent/                   Existing project module
+inventory_agent/               Existing project module
+forecasting/                   Existing project module
+recommendations/               Existing project module
+src/milestone3/                Existing workforce/marketing/health agents
+data/raw/                      Original workbooks
+data/processed/                Canonical cleaned data and agent outputs
 ```
 
-## Data notes
+The existing agent folders and raw workbooks are retained. The old Streamlit app is replaced by the Flask entry point. No GitHub branch has been changed by generating this package.
 
-The source workbook contains 30,120 rows, including 120 deliberate duplicate outlet/SKU/month test rows. Inventory and forecasting pipelines deterministically keep the first record, producing 30,000 unique monthly rows. The dashboard validates every Milestone 2 schema, key, category, action, priority, and common outlet coverage. Precomputed Milestone 1 scores and rankings are still recalculated from source measures so the displayed methodology remains internally consistent and auditable.
+## Validation, audit and scoring
+
+Publication requires unique outlet/month sales keys, complete required columns, valid months, finite financial values, nonnegative revenue/orders, unique complete outlet coverage in all score inputs and driver scores between 0 and 100. Existing source adapters use median imputation for specified numeric gaps and deduplicate outlet/month rows. SQLite publishes outlet facts, sales facts and M4 snapshots in one transaction; validation failures preserve the previous M4 snapshot.
+
+The supplied audit and intelligence source files are retained. The updated supplied orchestration source includes dashboard path and output-publication adapters. The existing orchestration/orchestrator.py now provides only the dashboard job/status and publication wrapper around the uploaded AgentOrchestrator. The intelligence/franchise_intelligence.py module maps the uploaded engine's results to the existing dashboard field names. Audit uses the supplied latest-month project standards. Intelligence uses the supplied 30/25/15/15/15 weights, risk penalties and priority rules. Resolving a workflow item records follow-up state without altering source scores.
+
+The compatibility adapter supplies the current 750-outlet performance output using the engine's required column names, rather than importing the branch's unrelated 12-outlet sample dataset. Alert level, revenue growth and benchmark gap remain unknown where the existing performance source does not provide them. The adapter copies audit Severity to Agent_Priority for the engine's named-priority input, retaining the original P1–P4 Priority column. It does not change audit rules, intelligence weights or risk formulas.
+
+Forecasts retain the supplied algorithm and are labelled **lagged estimates**: they average the preceding three observations and are not future projections.
+
+Large JSON datasets are split into 2,500-row files. The browser reads a small manifest and validates the reconstructed row count. This removes the single large JSON response involved in the reported 10 MiB truncation error. Serve through Python, not by opening index.html as a local file.
+
+## Verification
+
+```bash
+python -m pytest -q
+node --check dashboard/static/app.js
+node --check dashboard/static/m4.js
+```
+
+The database contains normalized outlets and monthly sales plus versioned-by-publication JSON snapshots, pipeline runs/steps and current finding follow-up state. It does not provide a historical change log for every follow-up edit. Restarted processes mark interrupted runs failed; start a new run to retry. Legacy CSV and JSON exports refresh before M4 validation; the M4 database transaction is the executive snapshot boundary.
+
+## Executive dashboard update
+
+The interface follows the supplied navy/white dashboard reference and keeps the existing project paths. Navigation uses business names: Executive Overview, Outlet Performance, Inventory Intelligence, Workforce Analytics, Marketing Effectiveness, Audit & Compliance, Franchise Intelligence, Action Center, and Data & Reports. Agent Workflow remains available for run history and execution. There are no milestone-number headings in the interface.
+
+The dashboard uses the existing data outputs and database snapshots. Reference-image example numbers are not copied into the application. Action Center joins audit findings and intelligence recommendations, and saves owner, note and Open/In progress/Resolved status in the existing action_state table. Data & Reports exports all twelve existing agent datasets plus audit_agent_output.csv and intelligence_output.csv, and displays validation results and schema. Region/outlet filters apply to exports; period filters apply to monthly datasets. Forecasting, benchmarking, performance scores and staff/marketing analysis remain accessible from the relevant business pages.
+
+Validation for this update: 36 Python tests passed; JavaScript syntax checks passed; 17 page templates and empty-scope rendering passed using actual datasets; seven dashboard API reads returned HTTP 200. Browser screenshot comparison and interaction verification remain pending because automatic browser approval review was blocked by a session usage limit. This package has not been deployed to or verified on Render. The existing Render build/start configuration is retained. A persistent disk configured through FRANCHISEOPS_DATA_DIR is required if follow-up state must survive service rebuilds or redeployments.
+
+Lucide icons are embedded in the existing stylesheet, with their ISC license included, so navigation has no external icon CDN dependency.
+
+All twelve existing agents now have direct sidebar entries, including Data preparation, Outlet benchmarking, Performance score, Demand forecasting, Staff agent, Marketing agent, Operational insights and Cross-functional health. Existing business dashboards retain their links and styling; shared routes appear only once. Agent Workflow stays last in the sidebar.
+
+
